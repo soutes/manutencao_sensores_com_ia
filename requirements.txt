@@ -1,18 +1,15 @@
 # --- dados / ML ---
 pandas
 numpy
-scikit-learn
-pyarrow
-faiss-cpu            # KNN similaridade (use faiss-gpu se disponivel)
-# --- RAG / docs ---
-pdfplumber           # extrair texto Doc2..6
-pytesseract          # OCR Doc1 (requer tesseract instalado no SO)
-pillow
-pdf2image            # rasterizar PDF p/ OCR (requer poppler)
-chromadb             # vector store persistente
-sentence-transformers
+scikit-learn          # StandardScaler, NearestNeighbors (similaridade), TF-IDF (RAG)
+joblib                # persistencia de indices
+pyarrow               # parquet
+# --- docs / OCR ---
+pdfplumber            # extrai texto Doc2..6
+pymupdf               # rasteriza PDF (render p/ OCR do Doc1 escaneado)
+rapidocr-onnxruntime  # OCR sem binario de SO (funciona em Python 3.14)
 # --- LLM ---
-requests             # cliente Ollama
+requests              # cliente Ollama (LLM local; backend plugavel)
 # --- API / app / bot ---
 fastapi
 uvicorn[standard]
