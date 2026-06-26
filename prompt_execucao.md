@@ -1,0 +1,161 @@
+# 🛠️ Etapa 2 — EXECUÇÃO em tmux (paralelo, multi-painel)
+
+Só comece **depois** do planejamento pronto (PRD, ADRs, `docs/STATUS.md`, plano).
+Aqui cada **painel do tmux é um `claude` independente** (processo próprio, contexto
+próprio). Não há delegação em-processo: a coordenação é **por arquivo** (`docs/STATUS.md`)
+e a integração é feita pelo **pane LEAD**.
+
+---
+
+## 1. Pré-requisitos
+
+- `docs/STATUS.md` preenchido (tarefas, donos, dependências, arquivos disjuntos).
+- tmux disponível. No Windows: rode via **WSL** ou **Git Bash** (o candidato já usa tmux).
+- Ollama rodando (perfil local) e/ou `OPENROUTER_API_KEY` no `.env` (perfil cloud).
+
+## 2. Subir a sessão
+
+Na raiz do projeto:
+```bash
+bash scripts/tmux_team.sh
+tmux attach -t fiesc
+```
+Cria 6 panes, um por papel (na ordem):
+
+| Pane | Papel | Edita só |
+|---|---|---|
+| 0 | 🧭 **LEAD** | `docs/STATUS.md`, integração, git (ÚNICO que commita) |
+| 1 | ⚙️ **BACKEND** | `src/core/backend.py`, `src/api/main.py`, `src/bot/telegram_bot.py` |
+| 2 | ✨ **UI/UX** | `src/app/ui.py` |
+| 3 | 🎨 **FRONTEND** | `src/app/streamlit_app.py` |
+| 4 | 🧪 **QA** | `notebooks/`, `tests/`, `scripts/_smoke_*.py` |
+| 5 | 🔍 **REVIEWER** | nada (só lê e comenta) |
+
+Em cada pane: rode `claude` e cole o prompt do papel (seção 5).
+Navegação tmux: `Ctrl-b` + seta (mudar pane), `Ctrl-b z` (zoom), `Ctrl-b d` (desconectar).
+
+---
+
+## 3. Protocolo de coordenação (CRÍTICO — processos separados)
+
+1. **Matriz de arquivos é lei.** Cada papel edita só os arquivos da tabela acima. Zero
+   sobreposição → zero conflito de merge.
+2. **Claim pelo STATUS.md.** Antes de editar, o agente muda sua linha em `docs/STATUS.md`
+   para `🟦 doing`. Ao terminar (com smoke test ok), para `✅`. Edita **só a própria linha**.
+3. **Dependências (waves).** Se a coluna `Depende` não está `✅`, o agente fica
+   `🟥 bloqueado` e aguarda — relê o board periodicamente.
+4. **Só o LEAD commita.** Workers NÃO rodam `git add/commit` (evita lock concorrente do
+   index). O LEAD observa o board, roda os testes e commita por wave.
+5. **Sincronizar antes de pegar tarefa nova:** reler `docs/STATUS.md` e o `git log`.
+
+### Waves (ordem de execução)
+```
+Wave 1 (paralelo):  BACKEND B1 ∥ UI/UX U1 ∥ QA Q1
+Wave 2 (paralelo):  BACKEND B2 ∥ FRONTEND F1 (só após U1=✅ e B1=✅)
+Wave 3:             QA testa tudo → REVIEWER revisa → LEAD integra+commita
+```
+
+---
+
+## 4. Definition of Done — ver `prompt_agents.md` §4.
+
+---
+
+## 5. Prompts dos panes (copia-e-cola — um por painel)
+
+Todos começam lendo o contexto. São **autossuficientes** (processos separados).
+
+### 🧭 PANE 0 — LEAD
+```
+Você é o TECH LEAD (pane 0) numa execução em tmux com 5 outros agentes em panes vizinhos.
+Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md e docs/STATUS.md.
+
+Seu papel: NÃO implementar features. Você (a) mantém docs/STATUS.md coerente, (b) observa
+os estados, (c) quando uma tarefa vira ✅, roda o smoke test correspondente e o pipeline
+end-to-end, (d) você é o ÚNICO que roda git add/commit — commite por wave com mensagem
+clara em português, (e) destrava bloqueios. A cada rodada, imprima o board atual.
+Comece validando o ambiente (parquet, artifacts, Ollama em localhost:11434) e o board.
+```
+
+### ⚙️ PANE 1 — BACKEND
+```
+Você é o BACKEND (pane 1). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+Edite SOMENTE: src/core/backend.py, src/api/main.py, src/bot/telegram_bot.py. NÃO commite (o LEAD commita).
+
+Tarefa B1: crie src/core/backend.py com:
+  - responder_evento(event: dict, origem='api') -> dict: chama core.pipeline.process_event,
+    grava com core.db.salvar_evento, retorna o report + id salvo.
+  - responder_duvida(texto: str, origem='api') -> dict: interpreta a pergunta; se citar/contiver
+    um defeito (core.faults.normalize_fault), chama core.rag.prescribe; se for sobre
+    "pendência/pendências" usa core.db.listar_pendencias; se "histórico" usa
+    core.db.historico_defeito; grava com core.db.salvar_consulta; retorna {resposta, contexto}.
+Tarefa B2 (após B1=✅): ligue src/bot/telegram_bot.py a essas funções (JSON -> responder_evento;
+  texto -> responder_duvida), origem='telegram'.
+Antes de cada tarefa marque 🟦 doing na sua linha do docs/STATUS.md; ao fim, smoke test em
+scripts/_smoke_backend.py e marque ✅. Respeite os contratos e o interruptor LGPD.
+```
+
+### ✨ PANE 2 — UI/UX
+```
+Você é o UI/UX (pane 2). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+Edite SOMENTE: src/app/ui.py. NÃO commite.
+
+Tarefa U1: crie src/app/ui.py portando o design system do app do candidato
+(C:/Users/luiz_/_DS/Analista_Financeiro/src/ui.py): inject_css(), tema escuro + accent,
+glow_kpi_box, barras de progresso, alert_line, ícones SVG — ADAPTADO ao domínio
+(defeito, ocorrências, frequência, pendência, "sem documento"). Funções puras de
+componente (recebem dados, renderizam via st.markdown). Marque 🟦/✅ na sua linha do STATUS.
+```
+
+### 🎨 PANE 3 — FRONTEND
+```
+Você é o FRONTEND (pane 3). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+Edite SOMENTE: src/app/streamlit_app.py. NÃO commite.
+NÃO comece enquanto U1 (ui.py) e B1 (backend) não estiverem ✅ no STATUS — fique 🟥 bloqueado.
+
+Tarefa F1: reescreva src/app/streamlit_app.py usando src/app/ui.py e core.backend:
+KPIs em glow box (defeito, ocorrências, frequência, última), gráfico temporal (plotly),
+instruções de solução, alerta amarelo no gating "sem documento", aba "Pendências"
+(core.db.listar_pendencias), dashboard geral (parquet) e chat (core.backend.responder_duvida).
+Mantenha o MODO DEMO (try/except se índices/LLM ausentes). Marque 🟦/✅ no STATUS.
+```
+
+### 🧪 PANE 4 — QA
+```
+Você é o QA (pane 4). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+Edite SOMENTE: notebooks/, tests/, scripts/_smoke_*.py. NÃO commite.
+
+Tarefa Q1: crie notebooks/analise.ipynb no estilo EDA do candidato (notebook BlackFriday):
+carregar data/banner_clean.parquet, distribuição de falhas, holdout KNN (k=1,5,15) com
+acurácia/f1, matriz de confusão, evidência da confusão eccentric_rotor↔desbalanceado,
+e INSIGHTS escritos em markdown. Depois rode o pipeline end-to-end (com-doc/sem-doc/estado)
+e gere tests/relatorio_qa.md: caso → esperado → obtido → passou?. Reporte bugs com a saída
+real, sem corrigir. Marque 🟦/✅ no STATUS.
+```
+
+### 🔍 PANE 5 — REVIEWER
+```
+Você é o REVIEWER (pane 5). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+NÃO edite código. Aguarde tarefas chegarem a 🟨/✅ e revise o diff (git diff).
+Uma linha por achado:  arquivo:linha: <ALTA|MÉDIA|BAIXA> problema. correção sugerida.
+Priorize: contrato quebrado, VAZAMENTO LGPD (manual indo p/ cloud no perfil errado),
+robustez, e simplicidade (algo difícil de o candidato defender na entrevista). Sem elogios,
+sem scope creep. Escreva o resumo em docs/review_notes.md.
+```
+
+---
+
+## 6. Encerramento (LEAD)
+Quando todas as tarefas da wave estão ✅ e o Reviewer sem severidade ALTA aberta:
+```
+LEAD: rode pipeline end-to-end + smoke tests, atualize docs/STATUS.md, e commite a wave:
+git add -A && git commit -m "feat(wave-N): <resumo> [backend/front/uiux/qa]"
+```
+
+## 7. Troubleshooting
+- **Conflito de arquivo:** alguém saiu da matriz. Pare, volte ao dono correto.
+- **STATUS.md com edição perdida:** dois panes editaram a mesma linha — reabra e reescreva.
+- **Frontend quebrando:** confirme U1 e B1 ✅ antes (dependência de wave).
+- **git index.lock:** só o LEAD commita. Se travar, `rm -f .git/index.lock` e recommite.
+- **Persistência:** se um pane fecha, o trabalho em disco permanece; reabra `claude` e
+  releia o STATUS para retomar.
