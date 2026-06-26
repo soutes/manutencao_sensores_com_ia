@@ -104,9 +104,11 @@ Mesmo código roda local (seguro) ou nuvem (demo). Espelha o padrão `config_ia`
 | Telegram bot (código) | ✅ | escrito |
 | Banco SQLAlchemy (eventos/consultas/pendências) | ✅ | 3 eventos gravados |
 | Gateway LLM (ollama↔openrouter) | ✅ | rótulo de provedor OK |
+| **LLM redige a prescrição (Ollama qwen2.5:3b)** | ✅ | prescrição fiel ao Doc6, 57s na CPU |
 | Docker + compose | ✅ | tesseract+poppler |
 
-**Commits:** `e2c090b` scaffold → `25e8f9e` pipeline completo → `53703bf` fundação 2 frentes.
+**Commits:** `e2c090b` scaffold → `25e8f9e` pipeline → `53703bf` fundação 2 frentes →
+`be9a11c` contexto → `5b061fe` perfis env. Ollama instalado (qwen2.5:3b), servidor local OK.
 
 ---
 
@@ -153,7 +155,7 @@ Itens 2–6 = o "produto". 7–9 = vitrine.
 - [x] Versionamento (commits incrementais)
 - [~] Documentação (README ok; falta diagrama + notebook)
 - [ ] Relatório/insights apresentável (notebook estilo BlackFriday)
-- [ ] LLM redigindo de verdade (Ollama instalado OU OpenRouter key)
+- [x] LLM redigindo de verdade (Ollama qwen2.5:3b local)
 - [ ] Demo ao vivo testada (dashboard no navegador + Telegram com token)
 - [ ] Slides da entrevista
 
@@ -178,3 +180,18 @@ Itens 2–6 = o "produto". 7–9 = vitrine.
 - Telegram: criar bot + `TELEGRAM_TOKEN`.
 - Repo GitHub: será **público** (gh logado como `soutes`); ainda sem remote.
 - Background agents do harness morrem em restart → fazer trabalho que persiste em foreground.
+
+---
+
+## 12. PROCESSO COM TIME DE AGENTES (SDLC completo)
+
+A partir daqui o desenvolvimento segue como uma consultoria especialista faria, com
+papéis: **Product Owner, Arquiteto, Tech Lead, Backend, Frontend, UI/UX, QA, Reviewer.**
+
+Fases: Discovery/PRD → ADRs → Backlog → Build paralelo → QA → Review → Integração.
+
+Artefatos gerados em `docs/`: `PRD.md`, `user-stories/`, `adr/ADR-NNN-*.md`,
+`STATUS.md` (quadro vivo de andamento).
+
+**O playbook completo e os prompts copia-e-cola estão em [`prompt_agents.md`](prompt_agents.md).**
+Comece pela **Fase 0 (Product Owner → PRD + User Stories)**.
