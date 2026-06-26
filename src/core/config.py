@@ -23,11 +23,32 @@ FEATURE_COLS = [
     "x_high_freq_rms_accel_g", "rpm",
 ]
 
-# LLM: backend plugavel. LLM_BACKEND = "api" | "ollama".
-LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
-LLM_MODEL = os.getenv("LLM_MODEL", "qwen2.5:7b")
+# ====================== PERFIL (o interruptor LGPD) ======================
+# LLM_PROVIDER decide ONDE o conteudo do manual e processado:
+#   "ollama"     -> LLM local on-prem, nada vaza (producao / LGPD)
+#   "openrouter" -> API externa, so para DEMO com dados sinteticos do case
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", os.getenv("LLM_BACKEND", "ollama")).lower()
+
+# Ollama (perfil local)
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", os.getenv("LLM_MODEL", "qwen2.5:7b"))
+
+# OpenRouter (perfil online) - OpenAI-compatible
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+
+# compat retro
+LLM_BACKEND = LLM_PROVIDER
+LLM_MODEL = OLLAMA_MODEL
+
 EMBED_MODEL = os.getenv("EMBED_MODEL", "intfloat/multilingual-e5-base")
+
+# ====================== BANCO (camada trocavel) ======================
+# DATABASE_URL define o backend:
+#   ausente            -> SQLite local em data/fiesc.db (on-prem / offline)
+#   postgres://...     -> Supabase / Postgres (perfil cloud, persistente)
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{(DATA_DIR / 'fiesc.db').as_posix()}")
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")

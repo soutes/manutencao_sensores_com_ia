@@ -9,7 +9,12 @@ pdfplumber            # extrai texto Doc2..6
 pymupdf               # rasteriza PDF (render p/ OCR do Doc1 escaneado)
 rapidocr-onnxruntime  # OCR sem binario de SO (funciona em Python 3.14)
 # --- LLM ---
-requests              # cliente Ollama (LLM local; backend plugavel)
+requests              # cliente Ollama (perfil local on-prem)
+openai                # cliente OpenRouter (perfil cloud, OpenAI-compatible)
+# --- banco ---
+sqlalchemy            # camada trocavel SQLite (on-prem) <-> Postgres/Supabase (cloud)
+cryptography          # Fernet p/ credenciais de IA criptografadas (config_ia)
+# psycopg2-binary     # descomente p/ Postgres/Supabase
 # --- API / app / bot ---
 fastapi
 uvicorn[standard]

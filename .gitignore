@@ -5,6 +5,8 @@ venv/
 .env
 artifacts/
 data/*.parquet
+data/*.db
+data/.key
 .ipynb_checkpoints/
 # CSV grande: versionar com cuidado (32MB). Descomente p/ ignorar:
 # docs/banner.csv
