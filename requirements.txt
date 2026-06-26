@@ -1,0 +1,22 @@
+# --- dados / ML ---
+pandas
+numpy
+scikit-learn
+pyarrow
+faiss-cpu            # KNN similaridade (use faiss-gpu se disponivel)
+# --- RAG / docs ---
+pdfplumber           # extrair texto Doc2..6
+pytesseract          # OCR Doc1 (requer tesseract instalado no SO)
+pillow
+pdf2image            # rasterizar PDF p/ OCR (requer poppler)
+chromadb             # vector store persistente
+sentence-transformers
+# --- LLM ---
+requests             # cliente Ollama
+# --- API / app / bot ---
+fastapi
+uvicorn[standard]
+streamlit
+plotly
+python-telegram-bot
+python-dotenv

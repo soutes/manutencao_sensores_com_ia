@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+artifacts/
+data/*.parquet
+.ipynb_checkpoints/
+# CSV grande: versionar com cuidado (32MB). Descomente p/ ignorar:
+# docs/banner.csv
