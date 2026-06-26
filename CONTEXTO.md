@@ -167,7 +167,11 @@ Itens 2–6 = o "produto". 7–9 = vitrine.
   pandas, EDA, encoding, train_test_split, KNN, comparação de modelos, RMSE/R².
 - O **núcleo analítico do FIESC está nesse mesmo nível** (KNN/scaler/split/métricas).
 - Engenharia (FastAPI/SQLite/LLM panel) = nível dos apps reais do candidato
-  (`Analista_Financeiro`, `Gestor_Financeiro`/PlanejAI). Reusar `ui.py` e padrão `config_ia`.
+  (`Analista_Financeiro`, `Gestor_Financeiro`/PlanejAI). Reusar padrão `config_ia`.
+- **Design system: fonte de verdade = `Gestor_Financeiro/src/ui.py` + `design-brief.md`**
+  (tema escuro, accent #10F5A3, fonte Inter). NÃO usar o do Analista. Manter identidade.
+- **Testes obrigatórios na execução:** pytest cobrindo endpoints (FastAPI TestClient),
+  backend, pipeline, db, faults e telegram (ver `prompt_execucao.md`, tarefa Q2).
 - Regra: manter tudo **explicável**. Nada que o candidato não consiga defender na entrevista.
 
 ---

@@ -100,11 +100,16 @@ scripts/_smoke_backend.py e marque ✅. Respeite os contratos e o interruptor LG
 Você é o UI/UX (pane 2). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
 Edite SOMENTE: src/app/ui.py. NÃO commite.
 
-Tarefa U1: crie src/app/ui.py portando o design system do app do candidato
-(C:/Users/luiz_/_DS/Analista_Financeiro/src/ui.py): inject_css(), tema escuro + accent,
-glow_kpi_box, barras de progresso, alert_line, ícones SVG — ADAPTADO ao domínio
-(defeito, ocorrências, frequência, pendência, "sem documento"). Funções puras de
-componente (recebem dados, renderizam via st.markdown). Marque 🟦/✅ na sua linha do STATUS.
+Tarefa U1: crie src/app/ui.py portando o DESIGN SYSTEM do GESTOR_FINANCEIRO do candidato
+(fonte de verdade — NÃO usar o Analista_Financeiro):
+  - C:/Users/luiz_/_DS/Gestor_Financeiro/src/ui.py  (paleta, CSS, componentes, fonte Inter)
+  - C:/Users/luiz_/_DS/Gestor_Financeiro/design-brief.md  (princípios visuais)
+  - C:/Users/luiz_/_DS/Gestor_Financeiro/assets/design-system/  (referências)
+Porte: inject_css() com a mesma paleta (accent #10F5A3, tema escuro, Inter), glow_kpi_box,
+barras de progresso, alert_line, ícones SVG — ADAPTADO ao domínio (defeito, ocorrências,
+frequência, pendência, "sem documento"). Mantenha a IDENTIDADE VISUAL do Gestor (o
+candidato quer consistência com o app dele). Funções puras de componente (recebem dados,
+renderizam via st.markdown). Marque 🟦/✅ na sua linha do STATUS.
 ```
 
 ### 🎨 PANE 3 — FRONTEND
@@ -125,12 +130,24 @@ Mantenha o MODO DEMO (try/except se índices/LLM ausentes). Marque 🟦/✅ no S
 Você é o QA (pane 4). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
 Edite SOMENTE: notebooks/, tests/, scripts/_smoke_*.py. NÃO commite.
 
-Tarefa Q1: crie notebooks/analise.ipynb no estilo EDA do candidato (notebook BlackFriday):
-carregar data/banner_clean.parquet, distribuição de falhas, holdout KNN (k=1,5,15) com
-acurácia/f1, matriz de confusão, evidência da confusão eccentric_rotor↔desbalanceado,
-e INSIGHTS escritos em markdown. Depois rode o pipeline end-to-end (com-doc/sem-doc/estado)
-e gere tests/relatorio_qa.md: caso → esperado → obtido → passou?. Reporte bugs com a saída
-real, sem corrigir. Marque 🟦/✅ no STATUS.
+Tarefa Q1 (notebook): crie notebooks/analise.ipynb no estilo EDA do candidato (notebook
+BlackFriday): carregar data/banner_clean.parquet, distribuição de falhas, holdout KNN
+(k=1,5,15) com acurácia/f1, matriz de confusão, evidência da confusão
+eccentric_rotor↔desbalanceado, e INSIGHTS escritos em markdown.
+
+Tarefa Q2 (TESTES — obrigatório, use pytest + FastAPI TestClient):
+  - tests/test_api.py: TestClient sobre src/api/main.py — GET /health (200),
+    POST /event com tests/sample_events.json (valida defeito_canonico, is_problem,
+    documented, n_similar), POST /chat (resposta não vazia).
+  - tests/test_backend.py: core.backend.responder_evento (grava no banco e retorna report),
+    responder_duvida para pergunta de pendência, histórico e correção de defeito.
+  - tests/test_pipeline.py: process_event end-to-end nos 3 casos (com-doc cocked_rotor,
+    sem-doc eccentric_rotor → documented=False, estado normal → is_problem=False).
+  - tests/test_db.py: salvar_evento/listar_pendencias/resumo_geral em SQLite temporário.
+  - tests/test_faults.py: normalize_fault cobre typos e estados (0 desconhecidos).
+  - tests/test_telegram.py: format_report do bot p/ caso com-doc e sem-doc (sem enviar rede).
+Rode `pytest -q` e gere tests/relatorio_qa.md: caso → esperado → obtido → passou?.
+Reporte bugs com a saída real, SEM corrigir. Marque 🟦/✅ no STATUS.
 ```
 
 ### 🔍 PANE 5 — REVIEWER

@@ -68,7 +68,8 @@ coordenação acontece por **arquivo**. Cada agente lê e atualiza este board.
 | U1 | Design system (portar ui.py)    | UI/UX    | ⬜     | —       | src/app/ui.py            |
 | F1 | Dashboard vestido + pendências  | Frontend | ⬜     | U1, B1  | src/app/streamlit_app.py |
 | Q1 | Notebook EDA+métricas+confusão  | QA       | ⬜     | —       | notebooks/analise.ipynb  |
-| R1 | Review LGPD + contratos         | Reviewer | ⬜     | B*,F*   | —                        |
+| Q2 | Testes (api/backend/pipeline/db) | QA      | ⬜     | B1,B2   | tests/test_*.py          |
+| R1 | Review LGPD + contratos         | Reviewer | ⬜     | B*,F*   | docs/review_notes.md     |
 ```
 
 **Regra de claim:** antes de editar, mude o Estado para `🟦 doing`. Se `Depende` não está
