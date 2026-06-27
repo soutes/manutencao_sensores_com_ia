@@ -31,9 +31,9 @@
 
 | ID | Tarefa | Dono | Estado | Depende | Arquivos (exclusivos) |
 |----|--------|------|--------|---------|----------------------|
-| B1 | Implementar `responder_evento(json)` e `responder_duvida(texto)` em `backend.py` | Backend | ⬜ | — | `src/core/backend.py` |
-| U1 | Criar `ui.py` com design system (componentes, cores, layout) | UI/UX | ⬜ | — | `src/app/ui.py` |
-| Q1 | Notebook EDA: distribuição, métricas KNN, matriz de confusão, insights | QA | ⬜ | — | `notebooks/analise.ipynb` |
+| B1 | `responder_evento()` com semáforo + `responder_duvida()` com banco+RAG; novas funções db: `atualizar_status()`, `serie_temporal_resolvidos()`, `resumo_semaforo()`, tabela `status_historico` | Backend | ✅ | — | `src/core/backend.py`, `src/core/db.py` |
+| U1 | `ui.py`: design system + `kpi_semaforo()`, `badge_status()`, `form_edicao_status()` | UI/UX | ✅ | — | `src/app/ui.py` |
+| Q1 | Notebook EDA: distribuição, métricas KNN, matriz de confusão, insights | QA | ✅ | — | `notebooks/analise.ipynb` |
 
 > **Arquivos disjuntos garantidos:** B1 ↔ U1 ↔ Q1 não compartilham nenhum arquivo.
 
@@ -43,8 +43,8 @@
 
 | ID | Tarefa | Dono | Estado | Depende | Arquivos (exclusivos) |
 |----|--------|------|--------|---------|----------------------|
-| B2 | Conectar Telegram ao `backend.py` (ingestão JSON + Q&A + gravação banco) | Backend | ⬜ | B1 ✅ | `src/bot/telegram_bot.py` |
-| F1 | Dashboard vestido: histórico + pendências + KPIs + design system | Frontend | ⬜ | U1 ✅, B1 ✅ | `src/app/streamlit_app.py` |
+| B2 | Telegram: JSON→semáforo, Q&A status parque (banco+RAG), multi-persona | Backend | ✅ | B1 ✅ | `src/bot/telegram_bot.py` |
+| F1 | Dashboard: KPIs semáforo, série temporal resolvidos, tabela editável, pendências, distribuição por defeito | Frontend | ✅ | U1 ✅, B1 ✅ | `src/app/streamlit_app.py` |
 
 > **Arquivos disjuntos garantidos:** B2 (bot) ↔ F1 (streamlit) não compartilham arquivo.
 
@@ -54,8 +54,8 @@
 
 | ID | Tarefa | Dono | Estado | Depende | Arquivos |
 |----|--------|------|--------|---------|---------|
-| Q2 | Smoke test end-to-end: Telegram → backend → banco → resposta | QA | ⬜ | B2 ✅, F1 ✅ | `tests/test_e2e.py` |
-| R1 | Review LGPD: gateway, gating, prompt restritivo, contratos | Reviewer | ⬜ | Q2 ✅ | — (leitura apenas) |
+| Q2 | Smoke test end-to-end: Telegram → backend → banco → resposta | QA | ✅ | B2 ✅, F1 ✅ | `tests/test_api.py`, `tests/test_backend.py`, `tests/test_db.py`, `tests/test_semaforo.py`, `tests/test_telegram.py` |
+| R1 | Review LGPD: gateway, gating, prompt restritivo, contratos | Reviewer | ✅ | Q2 ✅ | — (leitura apenas) |
 | L1 | Integração final: commit, tag v1.0, docker compose smoke test | Tech Lead | ⬜ | R1 ✅ | — |
 
 ---

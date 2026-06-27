@@ -1,0 +1,25 @@
+Você é o QA (pane 4). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+Edite SOMENTE: notebooks/, tests/, scripts/_smoke_*.py. NÃO commite.
+
+Tarefa Q1 (notebook — Wave 1, paralelo): crie notebooks/analise.ipynb no estilo EDA do candidato
+(notebook BlackFriday): carregar data/banner_clean.parquet, distribuição de falhas (17 canônicos),
+holdout KNN (k=1,5,15) com acurácia/f1, matriz de confusão, evidência da confusão
+eccentric_rotor↔desbalanceado (scatter PCA 2D), cobertura documental COM/SEM manual,
+e INSIGHTS escritos em markdown — mínimo 3 insights analíticos comentados.
+
+Tarefa Q2 (TESTES — Wave 3, após B2+F1=✅): use pytest + FastAPI TestClient:
+  - tests/test_api.py: GET /health (200), POST /event com tests/sample_events.json
+    (valida defeito_canonico, is_problem, documented, n_similar, status_manutencao no retorno).
+  - tests/test_backend.py: responder_evento grava no banco e retorna report com semáforo;
+    responder_duvida p/ "pendências", "histórico", "status parque", correção técnica de defeito.
+  - tests/test_pipeline.py: process_event end-to-end nos 3 casos:
+    com-doc cocked_rotor, sem-doc eccentric_rotor → documented=False, estado normal → is_problem=False.
+  - tests/test_db.py: salvar_evento/listar_pendencias/resumo_semaforo/serie_temporal_resolvidos
+    em SQLite temporário; atualizar_status grava status_historico com auditoria.
+  - tests/test_faults.py: normalize_fault cobre typos e estados (0 desconhecidos).
+  - tests/test_semaforo.py: _classificar_semaforo retorna 🔴 p/ sem-doc, 🔴 p/ alta freq,
+    🟡 p/ defeito com doc primeira ocorrência, 🟢 p/ estado normal.
+  - tests/test_telegram.py: format_report p/ com-doc (🟡), sem-doc (🔴), consulta status parque.
+Rode `pytest -q` e gere tests/relatorio_qa.md: caso → esperado → obtido → passou?.
+Reporte bugs com saída real, SEM corrigir. Crie scripts/_smoke_backend.py p/ smoke rápido.
+Marque 🟦/✅ no STATUS para cada sub-tarefa.

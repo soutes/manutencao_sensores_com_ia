@@ -1,101 +1,157 @@
-"""Bot Telegram - report de evento (push) + chat interativo.
+"""Bot Telegram — multi-persona: JSON de sensor → semáforo, texto → Q&A banco+RAG.
 
-Dois modos:
-  1. push_report(event): processa evento -> envia report ao TELEGRAM_CHAT_ID.
-  2. handlers de chat: /start, JSON colado, ou pergunta livre.
+Modos:
+  1. push_report(event): evento externo → backend.responder_evento → alerta proativo.
+  2. Handler chat: JSON colado → responder_evento; texto livre → responder_duvida.
 
-Formato: defeito, nº ocorrencias, frequencia, ultima ocorrencia, acao recomendada
-(ou aviso 'registre documento'), fonte. Consome core.pipeline.process_event.
+Contrato de saída visual:
+  🔴 crítico  — sem doc OU freq>5 OU rpm fora de faixa
+  🟡 atenção  — documentado, baixa freq
+  🟢 normal   — não é defeito
 """
 from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
 
 
-def format_report(report: dict) -> str:
-    """Formata o dict do process_event em mensagem Telegram (Markdown)."""
-    defeito = report.get("defeito_canonico", "?")
-    eid = report.get("event_id", "?")
-    quando = report.get("created_at", "")
+# ─── formatadores ────────────────────────────────────────────────────────────
 
-    if not report.get("is_problem", False):
-        return (f"✅ *Evento {eid}* — {quando}\n\n"
-                f"Estado operacional: *{defeito}* (não é defeito).\n"
-                f"Nenhuma ação necessária.")
+def _semaforo_titulo(semaforo: str) -> str:
+    return {
+        "🔴": "🔴 CRÍTICO",
+        "🟡": "🟡 ATENÇÃO",
+        "🟢": "🟢 NORMAL",
+    }.get(semaforo, semaforo)
+
+
+def format_event_report(result: dict) -> str:
+    """Formata resultado de responder_evento() em mensagem Markdown."""
+    semaforo = result.get("semaforo", "🟢")
+    defeito = result.get("defeito_canonico", "?")
+    eid = result.get("event_id", "?")
+    quando = result.get("created_at", "")
+    titulo = _semaforo_titulo(semaforo)
+
+    if not result.get("is_problem", False):
+        return (
+            f"{semaforo} *Evento {eid}* — {quando}\n\n"
+            f"Estado operacional: *{defeito}* (não é defeito).\n"
+            f"Nenhuma ação necessária."
+        )
 
     linhas = [
-        f"🔧 *NOVO EVENTO {eid}* — {quando}",
+        f"{titulo} — *Evento {eid}* — {quando}",
         "",
-        f"⚠️ Defeito: *{defeito}*",
-        f"📊 Ocorrências similares: *{report.get('n_similar', 0)}*",
-        f"📈 Frequência: ~{report.get('frequency_per_week', 0):.1f}/semana",
+        f"⚙️ Defeito: *{defeito}*",
+        f"📊 Ocorrências similares: *{result.get('n_similar', 0)}*",
+        f"📈 Frequência: ~{result.get('frequency_per_week', 0):.1f}/semana",
     ]
-    if report.get("last_occurrence"):
-        linhas.append(f"🕐 Última ocorrência: {report['last_occurrence']}")
+    if result.get("last_occurrence"):
+        linhas.append(f"🕐 Última ocorrência: {result['last_occurrence']}")
     linhas.append("")
 
-    if report.get("documented"):
+    if result.get("documented"):
         linhas.append("🛠️ *Ação recomendada:*")
-        linhas.append(report.get("instructions", ""))
-        fontes = report.get("sources") or []
+        linhas.append(result.get("instructions", ""))
+        fontes = result.get("sources") or []
         if fontes:
             linhas.append(f"\n📄 Fonte: {', '.join(fontes)}")
     else:
         linhas.append("❌ *Sem procedimento documentado.*")
         linhas.append("👉 Registre um novo documento para este defeito.")
 
+    if result.get("id_salvo"):
+        linhas.append(f"\n💾 Gravado como evento #{result['id_salvo']}")
+
     return "\n".join(linhas)
 
 
+def format_duvida_response(result: dict) -> str:
+    """Formata resultado de responder_duvida() em mensagem Markdown."""
+    resposta = result.get("resposta", "Sem resposta.")
+    fonte = result.get("fonte", "")
+    sufixo = f"\n\n_Fonte: {fonte}_" if fonte else ""
+    return f"{resposta}{sufixo}"
+
+
+def _is_json_event(text: str) -> bool:
+    """True se texto parece JSON de evento de sensor."""
+    stripped = text.strip()
+    if not stripped.startswith("{"):
+        return False
+    try:
+        json.loads(stripped)
+        return True
+    except json.JSONDecodeError:
+        return False
+
+
+# ─── push proativo ───────────────────────────────────────────────────────────
+
 def push_report(event: dict, chat_id: str | None = None) -> None:
-    """Processa um evento e empurra o report para o Telegram (modo alerta proativo)."""
-    from core.pipeline import process_event  # import tardio (depende de indices)
+    """Processa evento externo e empurra report para o Telegram."""
+    from core.backend import responder_evento
     from telegram import Bot
 
-    report = process_event(event)
+    result = responder_evento(event, origem="telegram_push")
     bot = Bot(token=TELEGRAM_TOKEN)
-    bot.send_message(chat_id=chat_id or TELEGRAM_CHAT_ID,
-                     text=format_report(report), parse_mode="Markdown")
+    bot.send_message(
+        chat_id=chat_id or TELEGRAM_CHAT_ID,
+        text=format_event_report(result),
+        parse_mode="Markdown",
+    )
 
 
-# ----------------- modo chat interativo -----------------
+# ─── handlers de chat ────────────────────────────────────────────────────────
+
 async def _start(update, context):
     await update.message.reply_text(
-        "Bot de Manutenção Prescritiva.\n"
-        "Cole o JSON de um evento para receber o report, "
-        "ou pergunte sobre um defeito (ex: 'como corrigir cocked_rotor?')."
+        "🤖 *Bot de Manutenção Prescritiva*\n\n"
+        "Cole o *JSON de um evento* para diagnóstico e semáforo, "
+        "ou faça uma *pergunta livre* sobre defeitos, pendências ou status do parque.\n\n"
+        "Exemplos:\n"
+        "  • `{\"fault_type\": \"rotor_bloqueado\", \"rpm\": 250}`\n"
+        "  • `Quais são os pontos críticos do parque?`\n"
+        "  • `Como corrigir cocked_rotor?`",
+        parse_mode="Markdown",
     )
 
 
 async def _handle(update, context):
-    from core.pipeline import process_event
-    from core.rag import prescribe
-    text = (update.message.text or "").strip()
-    try:
-        if text.startswith("{"):
-            report = process_event(json.loads(text))
-            await update.message.reply_text(format_report(report), parse_mode="Markdown")
-        else:
-            # heuristica: ultima palavra parecida com defeito canonico
-            from core.faults import normalize_fault
-            fault = normalize_fault(text).canonical
-            res = prescribe(fault, question=text)
-            msg = res.instructions
-            if res.sources:
-                msg += f"\n\n📄 Fonte: {', '.join(res.sources)}"
-            await update.message.reply_text(msg)
-    except Exception as e:  # noqa: BLE001
-        await update.message.reply_text(f"Erro ao processar: {e}")
+    from core.backend import responder_evento, responder_duvida
 
+    text = (update.message.text or "").strip()
+    if not text:
+        return
+
+    try:
+        if _is_json_event(text):
+            event = json.loads(text)
+            result = responder_evento(event, origem="telegram_chat")
+            await update.message.reply_text(
+                format_event_report(result), parse_mode="Markdown"
+            )
+        else:
+            result = responder_duvida(text, origem="telegram_chat")
+            await update.message.reply_text(
+                format_duvida_response(result), parse_mode="Markdown"
+            )
+    except Exception as e:  # noqa: BLE001
+        await update.message.reply_text(f"⚠️ Erro ao processar: {e}")
+
+
+# ─── entrypoint ──────────────────────────────────────────────────────────────
 
 def main() -> None:
     if not TELEGRAM_TOKEN:
         raise SystemExit("Defina TELEGRAM_TOKEN no ambiente.")
     from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", _start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle))

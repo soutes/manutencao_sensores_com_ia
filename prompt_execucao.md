@@ -80,19 +80,33 @@ Comece validando o ambiente (parquet, artifacts, Ollama em localhost:11434) e o 
 ### ⚙️ PANE 1 — BACKEND
 ```
 Você é o BACKEND (pane 1). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
-Edite SOMENTE: src/core/backend.py, src/api/main.py, src/bot/telegram_bot.py. NÃO commite (o LEAD commita).
+Edite SOMENTE: src/core/backend.py, src/core/db.py, src/api/main.py, src/bot/telegram_bot.py.
+NÃO commite (o LEAD commita).
 
 Tarefa B1: crie src/core/backend.py com:
-  - responder_evento(event: dict, origem='api') -> dict: chama core.pipeline.process_event,
-    grava com core.db.salvar_evento, retorna o report + id salvo.
-  - responder_duvida(texto: str, origem='api') -> dict: interpreta a pergunta; se citar/contiver
-    um defeito (core.faults.normalize_fault), chama core.rag.prescribe; se for sobre
-    "pendência/pendências" usa core.db.listar_pendencias; se "histórico" usa
-    core.db.historico_defeito; grava com core.db.salvar_consulta; retorna {resposta, contexto}.
-Tarefa B2 (após B1=✅): ligue src/bot/telegram_bot.py a essas funções (JSON -> responder_evento;
-  texto -> responder_duvida), origem='telegram'.
-Antes de cada tarefa marque 🟦 doing na sua linha do docs/STATUS.md; ao fim, smoke test em
-scripts/_smoke_backend.py e marque ✅. Respeite os contratos e o interruptor LGPD.
+  - responder_evento(event: dict, origem='api') -> dict:
+      chama core.pipeline.process_event, classifica semáforo (🔴/🟡/🟢) via _classificar_semaforo(),
+      grava com core.db.salvar_evento (inclui status_manutencao), retorna o report + id salvo.
+      Regras semáforo: 🔴 = sem manual OU alta freq (>5 ocorrências/7 dias) OU rpm anormal;
+      🟡 = defeito com manual, primeira ocorrência ou baixa freq; 🟢 = estado normal/baseline.
+  - responder_duvida(texto: str, origem='api') -> dict:
+      Detecta intenção da pergunta e combina banco + RAG:
+      "status parque / pontos críticos / manutenções abertas" → core.db.resumo_semaforo() + lista 🔴🟡;
+      "pendência/pendências" → core.db.listar_pendencias();
+      "histórico" → core.db.historico_defeito(defeito);
+      pergunta técnica sobre defeito → core.rag.prescribe();
+      grava com core.db.salvar_consulta; retorna {resposta, contexto, fonte}.
+  - Expanda core/db.py com: resumo_semaforo(), serie_temporal_resolvidos(dias=30),
+    atualizar_status(evento_id, status, comentario, responsavel),
+    e tabela status_historico (evento_id, status_anterior, status_novo, responsavel, data, comentario).
+
+Tarefa B2 (após B1=✅): ligue src/bot/telegram_bot.py:
+  JSON válido → responder_evento, origem='telegram';
+  texto → responder_duvida, origem='telegram';
+  formata resposta p/ Telegram incluindo emoji do semáforo.
+
+Antes de cada tarefa marque 🟦 doing; ao fim, smoke test em scripts/_smoke_backend.py e marque ✅.
+Respeite contratos (pipeline, similarity, rag, llm) e interruptor LGPD.
 ```
 
 ### ✨ PANE 2 — UI/UX
@@ -118,11 +132,32 @@ Você é o FRONTEND (pane 3). Leia CONTEXTO.md, prompt_agents.md, prompt_execuca
 Edite SOMENTE: src/app/streamlit_app.py. NÃO commite.
 NÃO comece enquanto U1 (ui.py) e B1 (backend) não estiverem ✅ no STATUS — fique 🟥 bloqueado.
 
-Tarefa F1: reescreva src/app/streamlit_app.py usando src/app/ui.py e core.backend:
-KPIs em glow box (defeito, ocorrências, frequência, última), gráfico temporal (plotly),
-instruções de solução, alerta amarelo no gating "sem documento", aba "Pendências"
-(core.db.listar_pendencias), dashboard geral (parquet) e chat (core.backend.responder_duvida).
-Mantenha o MODO DEMO (try/except se índices/LLM ausentes). Marque 🟦/✅ no STATUS.
+Tarefa F1: reescreva src/app/streamlit_app.py usando src/app/ui.py e core.backend.
+O dashboard atende múltiplos stakeholders (operador, engenheiro, gerente, diretor).
+
+Estrutura em abas/páginas:
+
+Aba 1 — "Painel": KPIs no topo em glow_kpi_box:
+  🔴 Críticos (n) | 🟡 Atenção (n) | 🟢 Resolvidos hoje | ⚠️ Sem manual | Defeito mais freq.
+  Gráfico Plotly: série temporal de eventos resolvidos (🟢) por dia (core.db.serie_temporal_resolvidos).
+  Segunda linha do gráfico: eventos abertos (🔴+🟡) no mesmo período.
+
+Aba 2 — "Eventos": tabela core.db.listar_eventos(), ordenada 🔴→🟡→🟢.
+  Filtros: semáforo, tipo de defeito, período.
+  Para cada linha: botão "Editar" abre formulário (st.form) lateral ou inline:
+    select status (🔴/🟡/🟢), textarea comentário (obrigatório p/ 🟢), text responsável.
+    Salvar → core.db.atualizar_status() → recarrega tabela e KPIs.
+
+Aba 3 — "Pendências": tabela core.db.listar_pendencias(), badge 🔴 implícito, por freq desc.
+  Alerta visual para >5 ocorrências.
+
+Aba 4 — "Análise": distribuição de defeitos (barras Plotly, coloridas por semáforo predominante),
+  pizza 🔴🟡🟢 do período, tabela de cobertura COM/SEM manual.
+
+Aba 5 — "Chat": core.backend.responder_duvida(texto) — responde status parque, pontos críticos,
+  histórico e Q&A técnico. Exibe fonte (banco / RAG / banco+RAG).
+
+Mantenha MODO DEMO (try/except se índices/LLM ausentes, dados mock). Marque 🟦/✅ no STATUS.
 ```
 
 ### 🧪 PANE 4 — QA
@@ -143,9 +178,13 @@ Tarefa Q2 (TESTES — obrigatório, use pytest + FastAPI TestClient):
     responder_duvida para pergunta de pendência, histórico e correção de defeito.
   - tests/test_pipeline.py: process_event end-to-end nos 3 casos (com-doc cocked_rotor,
     sem-doc eccentric_rotor → documented=False, estado normal → is_problem=False).
-  - tests/test_db.py: salvar_evento/listar_pendencias/resumo_geral em SQLite temporário.
+  - tests/test_db.py: salvar_evento/listar_pendencias/resumo_semaforo/serie_temporal_resolvidos
+    em SQLite temporário; atualizar_status grava status_historico com auditoria correta.
   - tests/test_faults.py: normalize_fault cobre typos e estados (0 desconhecidos).
-  - tests/test_telegram.py: format_report do bot p/ caso com-doc e sem-doc (sem enviar rede).
+  - tests/test_telegram.py: format_report do bot p/ caso com-doc (🟡) e sem-doc (🔴),
+    e p/ consulta de status parque (sem enviar rede).
+  - tests/test_semaforo.py: _classificar_semaforo retorna 🔴 p/ sem-doc, 🔴 p/ alta freq,
+    🟡 p/ defeito com doc primeira ocorrência, 🟢 p/ estado normal.
 Rode `pytest -q` e gere tests/relatorio_qa.md: caso → esperado → obtido → passou?.
 Reporte bugs com a saída real, SEM corrigir. Marque 🟦/✅ no STATUS.
 ```

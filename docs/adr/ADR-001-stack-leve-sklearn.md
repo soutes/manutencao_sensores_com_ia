@@ -13,8 +13,10 @@ O sistema precisa de dois componentes de ML:
 2. **Recuperação de texto** em corpus de 6 documentos (61 chunks)
 
 O ambiente alvo é on-premises (CPU, sem GPU garantida). Python 3.14 está em uso.
+Dependências são gerenciadas via **Poetry** (`pyproject.toml` + `poetry.lock`).
 Bibliotecas como `faiss` (C++), `torch` (grande), `chromadb` (dependências complexas)
-apresentam riscos de compatibilidade com Python 3.14 e aumentam o tamanho do Docker image.
+apresentam riscos de compatibilidade com Python 3.14, aumentam o tamanho do Docker image
+e dificultam o lock determinístico do Poetry.
 
 ---
 
@@ -50,3 +52,8 @@ Usar **sklearn** (`NearestNeighbors` + `TfidfVectorizer`) para ambos os componen
 - TF-IDF não captura semântica (ex: "vibração axial" ≠ "oscilação no eixo")
   — aceitável para manuais técnicos com vocabulário controlado
 - Se o corpus crescer para milhares de documentos, migrar para `faiss` ou `sentence-transformers`
+
+**Relação com Poetry (ADR-007):**
+- Todas as deps desta stack (`scikit-learn`, `pymupdf`, `rapidocr-onnxruntime`) têm wheels
+  no PyPI — o `poetry.lock` resolve sem compilação C++ e sem binários de SO adicionais
+- Docker image final usa `poetry install --only main --no-root` → image enxuta

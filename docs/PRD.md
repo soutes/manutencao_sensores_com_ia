@@ -96,8 +96,8 @@ dados sintéticos.
 - Redação de prescrição via LLM (Ollama local ou OpenRouter cloud)
 - Gating "sem documento" — registra pendência, nunca inventa
 - Persistência em banco (SQLite on-prem ↔ Supabase cloud)
-- Dashboard Streamlit com histórico, pendências e KPIs
-- Telegram bot (ingestão JSON + Q&A sobre histórico/pendências)
+- Dashboard Streamlit multi-stakeholder: semáforo, KPIs, série temporal, edição de status
+- Telegram bot (ingestão JSON + Q&A de status do parque para operador/gerente/diretor)
 - Deploy Docker on-premises + HF Spaces (demo cloud)
 - Notebook EDA com análise dos dados, métricas e insights
 
@@ -123,15 +123,18 @@ dados sintéticos.
 | RF-03 | Sistema recupera trecho do manual do defeito identificado via TF-IDF + cosseno | Must |
 | RF-04 | LLM redige prescrição restrita ao trecho recuperado | Must |
 | RF-05 | Se defeito sem manual: retorna mensagem de gating + registra em tabela `pendencias` | Must |
-| RF-06 | Telegram bot aceita mensagem JSON e responde com análise formatada | Must |
-| RF-07 | Telegram bot aceita perguntas em linguagem natural sobre histórico e pendências | Should |
-| RF-08 | Dashboard Streamlit exibe histórico de consultas com filtro por defeito | Must |
-| RF-09 | Dashboard Streamlit exibe lista de pendências sem documentação | Must |
-| RF-10 | Troca de LLM via variável `LLM_PROVIDER` sem alterar código | Must |
-| RF-11 | Troca de banco via variável `DATABASE_URL` sem alterar código | Must |
-| RF-12 | Notebook EDA com gráficos de distribuição, métricas KNN, matriz de confusão | Should |
-| RF-13 | Deploy funcional via `docker compose up` | Must |
-| RF-14 | Deploy alternativo via HF Spaces (demo cloud) | Could |
+| RF-06 | Telegram bot aceita JSON e responde com análise + semáforo de prioridade | Must |
+| RF-07 | Telegram bot responde consultas de status do parque (gerente/diretor/operador) com semáforo agregado | Should |
+| RF-08 | Dashboard exibe KPIs: 🔴🟡🟢 contagens, defeito mais frequente, tempo médio de resolução | Must |
+| RF-09 | Dashboard exibe série temporal de eventos resolvidos (🟢) por dia/semana | Must |
+| RF-10 | Dashboard exibe tabela de eventos com semáforo editável (status + comentário + responsável) | Must |
+| RF-11 | Dashboard exibe lista de pendências sem documentação com semáforo 🔴 implícito | Must |
+| RF-12 | Edição de status persiste no banco com auditoria (quem, quando, de→para) | Must |
+| RF-13 | Troca de LLM via variável `LLM_PROVIDER` sem alterar código | Must |
+| RF-14 | Troca de banco via variável `DATABASE_URL` sem alterar código | Must |
+| RF-15 | Notebook EDA com gráficos de distribuição, métricas KNN, matriz de confusão | Should |
+| RF-16 | Deploy funcional via `docker compose up` | Must |
+| RF-17 | Deploy alternativo via HF Spaces (demo cloud) | Could |
 
 ### 5.2 Não-Funcionais
 
@@ -154,19 +157,20 @@ Ver arquivos individuais em `docs/user-stories/`.
 
 ### Tabela Consolidada
 
-| ID | Título | Persona | MoSCoW |
+| ID | Título | Personas | MoSCoW |
 |---|---|---|---|
-| US-001 | Ingestão de evento JSON via Telegram | Operador | Must |
-| US-002 | Q&A sobre histórico e pendências via Telegram | Operador | Should |
-| US-003 | Dashboard de histórico de eventos (Streamlit) | Engenheiro | Must |
-| US-004 | Painel de pendências sem documento (Streamlit) | Engenheiro | Must |
+| US-001 | Ingestão de evento JSON via Telegram + semáforo na resposta | Operador | Must |
+| US-002 | Q&A status do parque fabril via Telegram (semáforo agregado) | Operador, Gerente, Diretor | Should |
+| US-003 | Dashboard multi-stakeholder: KPIs, semáforo, série temporal, edição | Todos | Must |
+| US-004 | Painel de pendências sem documento com semáforo 🔴 | Engenheiro, Gerente | Must |
 | US-005 | Gating "sem documento" — registrar pendência | Sistema | Must |
 | US-006 | Anti-alucinação — RAG restrito ao contexto | Sistema | Must |
-| US-007 | Operação offline com Ollama (modo on-prem) | Sistema/LGPD | Must |
+| US-007 | Operação offline com Ollama (modo on-prem / LGPD) | Sistema | Must |
 | US-008 | Operação cloud com OpenRouter (modo demo) | Sistema | Should |
 | US-009 | Notebook EDA com métricas e insights | Engenheiro | Should |
 | US-010 | Deploy Docker on-prem | Ops | Must |
 | US-011 | Deploy HF Spaces (demo cloud) | Ops | Could |
+| US-012 | Edição de status semáforo + comentário + auditoria → banco | Engenheiro, Técnico | Must |
 
 ---
 

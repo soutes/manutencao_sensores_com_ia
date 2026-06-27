@@ -4,6 +4,9 @@
 #       tmux attach -t fiesc             (para reconectar)
 set -e
 
+# psmux (tmux nativo Windows) bloqueia sessao aninhada — desanexa antes de criar
+unset PSMUX_SESSION
+
 SESSION="fiesc"
 DIR="${1:-$PWD}"
 

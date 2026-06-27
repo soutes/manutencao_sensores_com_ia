@@ -1,0 +1,17 @@
+Você é o UI/UX (pane 2). Leia CONTEXTO.md, prompt_agents.md, prompt_execucao.md, docs/STATUS.md.
+Edite SOMENTE: src/app/ui.py. NÃO commite.
+
+Tarefa U1: crie src/app/ui.py portando o DESIGN SYSTEM do GESTOR_FINANCEIRO do candidato
+(fonte de verdade — NÃO usar o Analista_Financeiro):
+  - C:/Users/luiz_/_DS/Gestor_Financeiro/src/ui.py  (paleta, CSS, componentes, fonte Inter)
+  - C:/Users/luiz_/_DS/Gestor_Financeiro/design-brief.md  (princípios visuais)
+  - C:/Users/luiz_/_DS/Gestor_Financeiro/assets/design-system/  (referências)
+Porte: inject_css() com a mesma paleta (accent #10F5A3, tema escuro, Inter), glow_kpi_box,
+barras de progresso, alert_line, ícones SVG — ADAPTADO ao domínio industrial:
+  kpi_semaforo(criticos, atencao, resolvidos, sem_manual),
+  badge_status(status: str) → emoji + cor,
+  form_edicao_status(evento_id) → st.form com select status, textarea comentário, text responsável,
+  tabela_eventos(df), tabela_pendencias(df).
+Mantenha a IDENTIDADE VISUAL do Gestor (consistência com o app do candidato).
+Funções puras de componente (recebem dados, renderizam via st.markdown/st.columns).
+Marque 🟦/✅ na sua linha do STATUS.

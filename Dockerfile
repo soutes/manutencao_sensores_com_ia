@@ -1,19 +1,26 @@
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # binarios p/ OCR do Doc1 (tesseract) e rasterizacao de PDF (poppler)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr tesseract-ocr-por poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
+# Poetry sem virtualenv dentro do container (container ja e isolado)
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    POETRY_CACHE_DIR=/tmp/poetry_cache
+
+RUN pip install poetry==2.2.1
+
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# copia lock antes do codigo — camada de deps e cacheada ate mudar pyproject/lock
+COPY pyproject.toml poetry.lock ./
+RUN poetry install --only main --no-root && rm -rf $POETRY_CACHE_DIR
 
 COPY . .
 ENV PYTHONPATH=/app/src
 
-# constroi indices na imagem (similaridade + RAG) — comente se preferir volume
-# RUN python scripts/build_all.py
-
 EXPOSE 8000 8501
+
 CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--app-dir", "src"]

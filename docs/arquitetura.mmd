@@ -1,0 +1,114 @@
+---
+title: Manutenção Prescritiva — Arquitetura (Case SENAI/FIESC)
+---
+flowchart TB
+    %% ── Atores externos ──────────────────────────────────────────
+    subgraph USUARIOS["👥 Usuários"]
+        OP["🔧 Operador\n(campo)"]
+        ENG["📊 Engenheiro /\nGerente / Diretor\n(estação)"]
+    end
+
+    %% ── Interfaces ───────────────────────────────────────────────
+    subgraph INTERFACES["📡 Interfaces"]
+        TG["🤖 Telegram Bot\n(python-telegram-bot)"]
+        ST["🖥️ Dashboard Streamlit\n• KPIs + Semáforo 🔴🟡🟢\n• Série temporal resolvidos\n• Tabela editável\n• Pendências"]
+    end
+
+    %% ── API ──────────────────────────────────────────────────────
+    subgraph API["⚙️ FastAPI — Cérebro"]
+        BE["backend.py\nresponder_evento()\nresponder_duvida()"]
+    end
+
+    %% ── Pipeline de IA ───────────────────────────────────────────
+    subgraph PIPELINE["🧠 Pipeline de IA"]
+        direction LR
+        SIM["🔍 Similaridade\nKNN ponderado\n(sklearn, k=5)\nacc=0.74"]
+        SEM["🚦 Semáforo\nClassificador\n🔴🟡🟢"]
+        RAG["📚 RAG Retriever\nTF-IDF + cosseno\n61 chunks / 6 docs"]
+        GATE{"⛔ Gating\ntem manual?"}
+        LLM_GW["🔀 Gateway LLM\ninterruptor LGPD\nLLM_PROVIDER"]
+    end
+
+    %% ── LLM ──────────────────────────────────────────────────────
+    subgraph LLM_LAYER["🤖 LLM (interruptor LGPD)"]
+        OLL["🏠 Ollama local\nqwen2.5:7b\non-prem / LGPD\nnada sai da empresa"]
+        OR["☁️ OpenRouter\ncloud API\nSÓ demo / dados sintéticos"]
+    end
+
+    %% ── Persistência ─────────────────────────────────────────────
+    subgraph DB_LAYER["🗄️ Banco (SQLAlchemy — trocável)"]
+        direction LR
+        SQLITE["💾 SQLite\non-prem / offline"]
+        SUPA["☁️ Supabase\nPostgres\ncloud demo"]
+        TABS["📋 Tabelas\n• eventos (+ status_manutencao)\n• pendencias\n• status_historico\n• consultas"]
+    end
+
+    %% ── Documentos ───────────────────────────────────────────────
+    subgraph DOCS["📄 Manuais (6 PDFs)"]
+        PDF["Doc1 OCR (rolamento)\nDoc2 desalinhado\nDoc3 desbalanceado\nDoc4 correia\nDoc5 polia\nDoc6 cocked_rotor"]
+    end
+
+    %% ── Dados históricos ─────────────────────────────────────────
+    subgraph DADOS["📊 Dados"]
+        CSV["banner.csv\n166k eventos\n17 defeitos canônicos\n23 features vibração"]
+    end
+
+    %% ── Deploy ───────────────────────────────────────────────────
+    subgraph DEPLOY["🐳 Deploy"]
+        DOC["Docker Compose\n(Poetry 2.2.1)\napi + app + bot + ollama"]
+        HF["🤗 HF Spaces\n(demo cloud)"]
+    end
+
+    %% ── Fluxo principal ──────────────────────────────────────────
+    OP -->|"JSON sensor\n(23 features + rpm)"| TG
+    OP -->|"pergunta texto"| TG
+    ENG -->|"pergunta / edita status"| ST
+
+    TG --> BE
+    ST --> BE
+    ST -->|"editar status + comentário"| TABS
+
+    BE --> SIM
+    SIM -->|"defeito provável"| SEM
+    SEM -->|"🔴🟡🟢"| BE
+    SIM --> GATE
+    GATE -->|"tem manual"| RAG
+    GATE -->|"sem manual → registrar"| TABS
+    RAG --> LLM_GW
+    LLM_GW -->|"LLM_PROVIDER=ollama"| OLL
+    LLM_GW -->|"LLM_PROVIDER=openrouter"| OR
+    OLL -->|"prescrição"| BE
+    OR -->|"prescrição"| BE
+
+    BE -->|"grava evento + status"| TABS
+    TABS --- SQLITE
+    TABS --- SUPA
+
+    %% ── Alimentação dos índices ───────────────────────────────────
+    PDF -->|"OCR + chunking\n(build_all.py)"| RAG
+    CSV -->|"fit scaler + KNN\n(build_all.py)"| SIM
+
+    %% ── Resposta ao usuário ───────────────────────────────────────
+    BE -->|"análise + semáforo\n+ prescrição"| TG
+    TG -->|"mensagem formatada"| OP
+    TABS -->|"histórico + KPIs\n+ série temporal"| ST
+    ST -->|"dashboard"| ENG
+
+    %% ── Deploy hospeda tudo ───────────────────────────────────────
+    DOC -.->|"contém"| API
+    DOC -.->|"contém"| INTERFACES
+    DOC -.->|"contém"| LLM_LAYER
+    HF -.->|"streamlit\n+ openrouter"| ST
+
+    %% ── Estilos ──────────────────────────────────────────────────
+    classDef vermelho fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef amarelo  fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef verde    fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef azul     fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef cinza    fill:#f3f4f6,stroke:#9ca3af,color:#374151
+
+    class OLL verde
+    class OR amarelo
+    class GATE,SEM vermelho
+    class SIM,RAG,LLM_GW azul
+    class SQLITE,SUPA,TABS cinza

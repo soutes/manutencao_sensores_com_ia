@@ -1,0 +1,55 @@
+[tool.poetry]
+name = "manutencao-prescritiva"
+version = "0.1.0"
+description = "Sistema de Manutenção Prescritiva com RAG e KNN — Case SENAI/FIESC"
+authors = ["Luiz Augusto Soutes <soutes@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.14"
+
+# dados / ML
+pandas = "*"
+numpy = "*"
+scikit-learn = "*"
+joblib = "*"
+pyarrow = "*"
+
+# docs / OCR
+pdfplumber = "*"
+pymupdf = "*"
+rapidocr-onnxruntime = "*"
+
+# LLM
+requests = "*"
+openai = "*"           # cliente OpenRouter (OpenAI-compatible)
+
+# banco
+sqlalchemy = "*"
+cryptography = "*"     # Fernet para credenciais de IA
+# psycopg2-binary = "*"  # descomente para Postgres/Supabase
+
+# API / app / bot
+fastapi = "*"
+uvicorn = { version = "*", extras = ["standard"] }
+streamlit = "*"
+plotly = "*"
+python-telegram-bot = "*"
+python-dotenv = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+pytest-asyncio = "*"
+httpx = "*"            # TestClient do FastAPI
+ipykernel = "*"
+jupyterlab = "*"
+
+[tool.poetry.scripts]
+api = "src.api.main:start"
+app = "src.app.streamlit_app:start"
+bot = "src.bot.telegram_bot:start"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
