@@ -81,6 +81,27 @@ def _retrieve(doc_name: str, query: str, top_k: int = 4) -> list[str]:
     return [d["chunks"][idx[i]] for i in order]
 
 
+def search_all(query: str, top_k: int = 5,
+               min_score: float = 0.05) -> list[tuple[str, str, float]]:
+    """Busca livre em todos os chunks (sem filtro por documento).
+
+    Retorna lista de (chunk, doc_name, score) ordenada por relevância.
+    Útil para perguntas de texto livre sem defeito canônico identificado.
+    """
+    from sklearn.metrics.pairwise import cosine_similarity
+    if not _RAG_PATH.exists():
+        return []
+    d = joblib.load(_RAG_PATH)
+    qv = d["vectorizer"].transform([query])
+    sims = cosine_similarity(qv, d["matrix"])[0]
+    order = sims.argsort()[::-1][:top_k]
+    return [
+        (d["chunks"][i], d["metas"][i], float(sims[i]))
+        for i in order
+        if sims[i] >= min_score
+    ]
+
+
 _SYSTEM = (
     "Voce e um assistente de manutencao industrial. Responda SOMENTE com base no "
     "CONTEXTO fornecido (procedimento tecnico). Nao invente passos que nao estejam "

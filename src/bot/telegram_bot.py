@@ -16,7 +16,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import os
+
 from core.config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+
+# IDs de usuários autorizados (chat privado).
+# Em grupos, qualquer membro pode interagir — o controle é pela adição ao grupo.
+_raw = os.getenv("ALLOWED_USER_IDS", "")
+ALLOWED_USER_IDS: set[int] = {int(x.strip()) for x in _raw.split(",") if x.strip().lstrip("-").isdigit()}
+
+
+def _autorizado(update) -> bool:
+    """Privado: só ALLOWED_USER_IDS. Grupo/supergrupo: todos os membros."""
+    chat_type = update.effective_chat.type if update.effective_chat else "private"
+    if chat_type in ("group", "supergroup"):
+        return True
+    if not ALLOWED_USER_IDS:
+        return True  # sem whitelist configurada → aberto (desenvolvimento)
+    return (update.effective_user.id in ALLOWED_USER_IDS) if update.effective_user else False
 
 
 # ─── formatadores ────────────────────────────────────────────────────────────
@@ -110,20 +127,40 @@ def push_report(event: dict, chat_id: str | None = None) -> None:
 # ─── handlers de chat ────────────────────────────────────────────────────────
 
 async def _start(update, context):
+    if not _autorizado(update):
+        return
     await update.message.reply_text(
-        "🤖 *Bot de Manutenção Prescritiva*\n\n"
+        "🤖 *Bot de Manutenção Prescritiva — SENAI SC*\n\n"
         "Cole o *JSON de um evento* para diagnóstico e semáforo, "
         "ou faça uma *pergunta livre* sobre defeitos, pendências ou status do parque.\n\n"
         "Exemplos:\n"
-        "  • `{\"fault_type\": \"rotor_bloqueado\", \"rpm\": 250}`\n"
+        "  • `{\"rpm\": 1750, \"z_kurtosis\": 3.2}`\n"
         "  • `Quais são os pontos críticos do parque?`\n"
-        "  • `Como corrigir cocked_rotor?`",
+        "  • `Como corrigir cocked_rotor?`\n\n"
+        "Use /myid para ver seu ID de usuário.",
+        parse_mode="Markdown",
+    )
+
+
+async def _myid(update, context):
+    """Retorna user_id e chat_id — útil para configurar ALLOWED_USER_IDS."""
+    uid = update.effective_user.id if update.effective_user else "?"
+    cid = update.effective_chat.id if update.effective_chat else "?"
+    chat_type = update.effective_chat.type if update.effective_chat else "?"
+    await update.message.reply_text(
+        f"👤 Seu user\\_id: `{uid}`\n"
+        f"💬 Chat id: `{cid}`\n"
+        f"Tipo: {chat_type}\n\n"
+        f"Adicione seu user\\_id em `ALLOWED_USER_IDS` no `.env` para restringir acesso.",
         parse_mode="Markdown",
     )
 
 
 async def _handle(update, context):
     from core.backend import responder_evento, responder_duvida
+
+    if not _autorizado(update):
+        return  # ignora silenciosamente — não revela que o bot existe
 
     text = (update.message.text or "").strip()
     if not text:
@@ -154,6 +191,7 @@ def main() -> None:
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", _start))
+    app.add_handler(CommandHandler("myid", _myid))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle))
     print("Bot Telegram rodando...")
     app.run_polling()

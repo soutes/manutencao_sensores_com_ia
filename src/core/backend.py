@@ -44,11 +44,21 @@ def _classificar_semaforo(report: dict, event: dict | None = None) -> str:
 
 def _detectar_intencao(texto: str) -> str:
     t = texto.lower()
-    _status_kw = ("status", "parque", "crítico", "critico",
-                  "situação", "situacao", "manutencao aberta", "manutenção aberta",
-                  "pontos criticos", "pontos críticos")
-    _pend_kw = ("pendência", "pendencia", "pendente", "pendências",
-                "pendencias", "em aberto", "abertas")
+    _status_kw = (
+        "status", "parque", "crítico", "critico",
+        "situação", "situacao", "manutencao aberta", "manutenção aberta",
+        "pontos criticos", "pontos críticos",
+        # perguntas naturais sobre estado geral do parque
+        "atenção", "atencao", "alerta",
+        "máquina", "maquina", "máquinas", "maquinas",
+        "equipament", "motor precis", "motores precis",
+        "precisa de", "precisam de",
+    )
+    _pend_kw = (
+        "pendência", "pendencia", "pendente", "pendências",
+        "pendencias", "em aberto", "abertas",
+        "sem manual", "sem procedimento", "sem documento",
+    )
     _hist_kw = ("histórico", "historico", "ocorrencias", "ocorrências",
                 "vezes", "quantas vezes")
 
@@ -97,91 +107,162 @@ def responder_evento(event: dict, origem: str = "api") -> dict:
 
 # ─── responder_duvida ─────────────────────────────────────────────────────
 
-def responder_duvida(texto: str, origem: str = "api") -> dict:
-    """Responde pergunta livre combinando banco + RAG conforme intenção detectada.
+_SYSTEM_CHAT = (
+    "Você é um assistente técnico de manutenção industrial. "
+    "Responda em português, de forma natural e conversacional, como um especialista. "
+    "Use APENAS as informações do CONTEXTO fornecido (banco de eventos + documentação). "
+    "Não invente dados. Se a informação não estiver no contexto, diga claramente que não encontrou. "
+    "Seja conciso e direto."
+)
 
-    Retorna:
-      {resposta: str, contexto: dict, fonte: str}
-    """
+
+def _ctx_banco(texto: str) -> tuple[str, dict]:
+    """Monta bloco de contexto a partir do banco de dados."""
     from . import db
-    from .rag import prescribe
+    geral = db.resumo_geral()
+    resumo = db.resumo_semaforo()
+    abertos = resumo.get("abertos", [])
+    pendencias = db.listar_pendencias(limit=10)
+    todos = db.listar_eventos(limit=500)
 
-    intencao = _detectar_intencao(texto)
-    resposta: str
-    contexto: dict
-    fonte: str
+    criticos = [e for e in abertos if e["semaforo"] == "🔴"]
+    atencao = [e for e in abertos if e["semaforo"] == "🟡"]
 
-    if intencao == "status_parque":
-        resumo = db.resumo_semaforo()
-        abertos = resumo.get("abertos", [])
-        criticos = [e for e in abertos if e["semaforo"] == "🔴"]
-        atencao = [e for e in abertos if e["semaforo"] == "🟡"]
+    linhas = [
+        f"TOTAIS: {geral.get('eventos', 0)} eventos analisados | "
+        f"{geral.get('pendencias', 0)} pendências | "
+        f"{geral.get('consultas', 0)} consultas realizadas",
+        f"SEMÁFORO ATUAL: {resumo['vermelho']} críticos | "
+        f"{resumo['amarelo']} em atenção | {resumo['verde']} OK",
+    ]
 
-        linhas = [
-            f"📊 Status do parque de máquinas:",
-            f"  🔴 Críticos: {resumo['vermelho']}",
-            f"  🟡 Atenção:  {resumo['amarelo']}",
-            f"  🟢 OK:       {resumo['verde']}",
-        ]
-        if criticos:
-            nomes = ", ".join(e["defeito"] for e in criticos[:5])
-            linhas.append(f"\n🚨 Pontos críticos: {nomes}")
-        if atencao:
-            nomes = ", ".join(e["defeito"] for e in atencao[:5])
-            linhas.append(f"⚠️  Em atenção: {nomes}")
-        if not criticos and not atencao:
-            linhas.append("\n✅ Nenhuma manutenção aberta no momento.")
+    # lista todos os eventos com defeito e status
+    if todos:
+        ev_lines = ", ".join(
+            f"{e['defeito']} (#{e['id']} {e['semaforo']} {e['status']})"
+            for e in todos[:20]
+        )
+        linhas.append(f"EVENTOS REGISTRADOS: {ev_lines}")
 
-        resposta = "\n".join(linhas)
-        contexto = resumo
-        fonte = "banco"
+    if criticos:
+        items = ", ".join(
+            f"{e['defeito']} (id={e['id']}, {e['frequency_per_week']:.1f}/sem, "
+            f"{'COM' if e['documented'] else 'SEM'} manual)"
+            for e in criticos[:6]
+        )
+        linhas.append(f"DEFEITOS CRÍTICOS: {items}")
+    if atencao:
+        items = ", ".join(
+            f"{e['defeito']} (id={e['id']})" for e in atencao[:6]
+        )
+        linhas.append(f"DEFEITOS EM ATENÇÃO: {items}")
+    if not criticos and not atencao:
+        linhas.append("Nenhum defeito crítico ou em atenção no momento.")
+    if pendencias:
+        items = ", ".join(
+            f"{p['defeito']} (id={p['id']}, sem manual)" for p in pendencias[:5]
+        )
+        linhas.append(f"PENDÊNCIAS SEM MANUAL: {items}")
 
-    elif intencao == "pendencias":
-        pendencias = db.listar_pendencias(limit=20)
-        if pendencias:
-            linhas = [f"📋 {len(pendencias)} pendência(s):"]
-            for p in pendencias:
-                sem = p.get("semaforo", "🔴")
-                freq = p.get("frequency_per_week", 0)
-                doc_flag = "" if p.get("documented") else " ⚠️sem manual"
-                linhas.append(
-                    f"  {sem} [{p['id']}] {p['defeito']}"
-                    f" – {freq:.1f}/sem{doc_flag}"
-                )
-            resposta = "\n".join(linhas)
-        else:
-            resposta = "✅ Nenhuma pendência encontrada."
-        contexto = {"pendencias": pendencias}
-        fonte = "banco"
+    # histórico do defeito mencionado no texto, se houver
+    defeito_mencionado = _extrair_defeito_texto(texto)
+    if defeito_mencionado != "desconhecido":
+        hist = db.historico_defeito(defeito_mencionado)
+        if hist:
+            linhas.append(
+                f"HISTÓRICO DE '{defeito_mencionado}': "
+                f"{len(hist)} ocorrência(s), "
+                f"última em {hist[-1]['ts'][:10]}"
+            )
 
-    elif intencao == "historico":
-        defeito = _extrair_defeito_texto(texto)
-        historico = db.historico_defeito(defeito)
-        if historico:
-            linhas = [f"📈 Histórico de '{defeito}': {len(historico)} ocorrência(s)"]
-            for h in historico[:10]:
-                sem = h.get("semaforo", "")
-                linhas.append(f"  {sem} #{h['event_id']} – {h['status']} em {h['ts'][:10]}")
-            resposta = "\n".join(linhas)
-        else:
-            resposta = f"Nenhum histórico encontrado para '{defeito}'."
-        contexto = {"defeito": defeito, "historico": historico}
-        fonte = "banco"
+    return "\n".join(linhas), {
+        "resumo": resumo,
+        "pendencias": pendencias,
+        "defeito": defeito_mencionado if defeito_mencionado != "desconhecido" else None,
+    }
 
-    else:  # pergunta tecnica sobre defeito
-        defeito = _extrair_defeito_texto(texto)
-        presc = prescribe(defeito, question=texto)
-        resposta = presc.instructions
-        if presc.sources:
-            resposta += f"\n\n📄 Fonte: {', '.join(presc.sources)}"
-        contexto = {
-            "defeito": presc.canonical_fault,
-            "documented": presc.documented,
-            "sources": presc.sources,
-        }
-        fonte = "RAG" if presc.documented else "banco+RAG"
 
-    db.salvar_consulta(pergunta=texto, resposta=resposta,
-                       defeito=contexto.get("defeito"), origem=origem)
+def _ctx_rag(texto: str) -> tuple[str, list[str]]:
+    """Busca livre no índice RAG e retorna contexto + fontes."""
+    from .rag import search_all
+    hits = search_all(texto, top_k=4, min_score=0.05)
+    if not hits:
+        return "", []
+    blocos = [f"[{doc}] {chunk[:450]}" for chunk, doc, _ in hits]
+    fontes = list(dict.fromkeys(doc for _, doc, _ in hits))  # unique, ordered
+    return "\nDOCUMENTAÇÃO TÉCNICA:\n" + "\n\n".join(blocos[:2]), fontes
 
-    return {"resposta": resposta, "contexto": contexto, "fonte": fonte}
+
+def _fallback_estruturado(ctx: dict, rag_ctx: str) -> str:
+    """Resposta estruturada quando LLM está offline."""
+    resumo = ctx.get("resumo", {})
+    pendencias = ctx.get("pendencias", [])
+    abertos = resumo.get("abertos", [])
+    criticos = [e for e in abertos if e["semaforo"] == "🔴"]
+    atencao = [e for e in abertos if e["semaforo"] == "🟡"]
+
+    linhas = [
+        f"📊 {resumo.get('vermelho', 0)} críticos · "
+        f"{resumo.get('amarelo', 0)} atenção · "
+        f"{resumo.get('verde', 0)} OK"
+    ]
+    if criticos:
+        linhas.append("\n🔴 Críticos:")
+        for e in criticos[:5]:
+            linhas.append(
+                f"  • {e['defeito']} (#{e['id']}) — "
+                f"{e['frequency_per_week']:.1f}/sem · "
+                f"{'COM' if e['documented'] else 'SEM'} manual"
+            )
+    if atencao:
+        linhas.append("\n🟡 Em atenção:")
+        for e in atencao[:5]:
+            linhas.append(f"  • {e['defeito']} (#{e['id']})")
+    if pendencias:
+        linhas.append(f"\n📋 {len(pendencias)} pendência(s) sem procedimento:")
+        for p in pendencias[:5]:
+            linhas.append(f"  • {p['defeito']} (#{p['id']})")
+    if not criticos and not atencao and not pendencias:
+        linhas.append("\n✅ Nenhuma manutenção pendente no momento.")
+    if rag_ctx:
+        linhas.append("\n" + rag_ctx[:400])
+    return "\n".join(linhas)
+
+
+def responder_duvida(texto: str, origem: str = "api") -> dict:
+    """Responde pergunta livre em linguagem natural.
+
+    Sempre busca banco + RAG. Se LLM disponível: gera resposta natural.
+    Fallback: resposta estruturada do banco sem LLM.
+
+    Retorna {resposta, contexto, fonte, sources}.
+    """
+    from .llm import llm_generate, LLMError
+    from . import db
+
+    banco_ctx, ctx_dict = _ctx_banco(texto)
+    rag_ctx, fontes = _ctx_rag(texto)
+
+    contexto_completo = banco_ctx + rag_ctx
+    prompt = f"Contexto:\n{contexto_completo}\n\nPergunta: {texto}"
+
+    try:
+        resposta = llm_generate(prompt, system=_SYSTEM_CHAT)
+        fonte = "LLM+banco+RAG" if fontes else "LLM+banco"
+    except LLMError:
+        resposta = _fallback_estruturado(ctx_dict, rag_ctx)
+        fonte = "banco+RAG" if fontes else "banco"
+
+    db.salvar_consulta(
+        pergunta=texto,
+        resposta=resposta,
+        defeito=ctx_dict.get("defeito"),
+        origem=origem,
+    )
+
+    return {
+        "resposta": resposta,
+        "contexto": ctx_dict,
+        "fonte": fonte,
+        "sources": fontes,
+    }

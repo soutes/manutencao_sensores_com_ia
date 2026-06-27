@@ -44,6 +44,35 @@ FAULT_DOC_MAP: dict[str, str | None] = {
     "falta_fase":       None,
 }
 
+# Rótulos em português para exibição ao usuário (técnico → humano).
+FAULT_LABELS_PT: dict[str, str] = {
+    "rolamento":             "Rolamento (geral)",
+    "rolamento_inner":       "Rolamento — Pista Interna",
+    "rolamento_outer":       "Rolamento — Pista Externa",
+    "rolamento_ball":        "Rolamento — Esfera",
+    "rolamento_combination": "Rolamento — Combinado",
+    "desalinhado":           "Desalinhamento",
+    "desbalanceado":         "Desbalanceamento",
+    "correia":               "Correia",
+    "polia":                 "Polia",
+    "cocked_rotor":          "Rotor Inclinado",
+    "eccentric_rotor":       "Rotor Excêntrico",
+    "ventoinha":             "Ventoinha",
+    "falta_fase":            "Falta de Fase",
+    "normal":                "Normal",
+    "baseline":              "Linha de Base",
+    "teste":                 "Teste",
+    "acelerando":            "Acelerando",
+    "motor_desligado":       "Motor Desligado",
+    "desconhecido":          "Desconhecido",
+}
+
+
+def label_pt(canonical: str) -> str:
+    """Retorna rótulo em português; fallback = próprio canônico."""
+    return FAULT_LABELS_PT.get(canonical, canonical)
+
+
 # Rotulos canonicos que representam ESTADO operacional (nao defeito).
 STATES = {"normal", "baseline", "teste", "acelerando", "motor_desligado"}
 
