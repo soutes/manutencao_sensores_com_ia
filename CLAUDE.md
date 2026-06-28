@@ -2,7 +2,7 @@
 
 ## O que é este projeto
 
-Sistema de manutenção prescritiva para motores industriais. Recebe eventos de sensores de vibração (JSON), classifica o defeito via KNN, calcula semáforo de criticidade e gera prescrição de correção via RAG sobre manuais técnicos em PDF.
+Sistema de manutenção prescritiva para motores industriais. Recebe eventos de sensores de vibração (JSON), classifica o defeito via RandomForest (acc=0.879), calcula semáforo de criticidade e gera prescrição de correção via RAG sobre manuais técnicos em PDF.
 
 Entregável: case técnico para vaga SENAI/FIESC. Deadline 29/06, entrevista 01/07.
 
@@ -11,7 +11,7 @@ Entregável: case técnico para vaga SENAI/FIESC. Deadline 29/06, entrevista 01/
 ## Stack
 
 - **Python 3.14** + Poetry 2.2.1
-- **ML**: scikit-learn (KNN k=5, acc=0.74 holdout, 166k×23 features)
+- **ML**: KNN NearestNeighbors (50 vizinhos, busca por similaridade) + RandomForest (200 árvores, confirmação) — fluxo: similaridade → maioria → prescrição
 - **RAG**: TF-IDF + cosine similarity, 61 chunks, 6 PDFs — sem torch/faiss/chromadb
 - **LLM**: Ollama local (`qwen2.5:3b`) ou OpenRouter (demo only)
 - **Banco**: SQLAlchemy — SQLite (dev/on-prem) ↔ Postgres/Supabase (cloud) via `DATABASE_URL`

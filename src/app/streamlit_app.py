@@ -1,12 +1,13 @@
 """Dashboard Streamlit — Manutenção Prescritiva SENAI SC.
 
-6 abas: Evento | Painel | Eventos | Pendências | Análise | Chat
+7 abas: Overview | Nova Análise | Pendências | Resolvidos | Análise | Chat | Relatório IA
 """
 from __future__ import annotations
 import json
 import os
 import sys
 import urllib.parse
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,8 +18,8 @@ import streamlit as st
 
 import app.ui as ui
 from core import db
-from core.backend import responder_duvida, responder_evento
-from core.faults import FAULT_LABELS_PT, label_pt
+from core.backend import gerar_relatorio_ia, responder_duvida, responder_evento
+from core.faults import FAULT_DOC_MAP, FAULT_LABELS_PT, label_pt
 
 st.set_page_config(
     page_title="Manutenção Prescritiva — SENAI SC",
@@ -27,13 +28,20 @@ st.set_page_config(
 )
 ui.inject_css()
 
+# ── Dataset de treino (cached) ────────────────────────────────────────────────
+@st.cache_data(show_spinner=False)
+def _dataset_stats() -> dict:
+    try:
+        _p = Path(__file__).resolve().parents[2] / "data" / "banner_clean.parquet"
+        df = pd.read_parquet(_p)
+        return {"registros": len(df), "features": len(df.columns)}
+    except Exception:
+        return {"registros": 166_000, "features": 18}
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _fmt_defeito(canonical: str) -> str:
-    """'Motor Excêntrico (eccentric_rotor)'."""
     pt = label_pt(canonical)
     if pt != canonical:
         return f"{pt} ({canonical})"
@@ -41,16 +49,13 @@ def _fmt_defeito(canonical: str) -> str:
 
 
 def _apply_llm_config(provider: str, host: str, model: str, api_key: str) -> None:
-    """Patcha módulos LLM em runtime — válido para a sessão Streamlit atual."""
     import core.config as _cfg
     import core.llm as _llm
-
     os.environ["LLM_PROVIDER"] = provider
     os.environ["OLLAMA_HOST"] = host
     os.environ["OLLAMA_MODEL"] = model
     if api_key:
         os.environ["OPENROUTER_API_KEY"] = api_key
-
     _cfg.LLM_PROVIDER = provider
     _cfg.OLLAMA_HOST = host
     _cfg.OLLAMA_MODEL = model
@@ -69,6 +74,30 @@ def _current_llm_provider() -> str:
         return _llm.LLM_PROVIDER
     except Exception:
         return os.getenv("LLM_PROVIDER", "ollama")
+
+
+def _period_slicer(key: str) -> tuple[str, str]:
+    """Seletor de período estilo Power BI. Retorna (inicio, fim) YYYY-MM-DD."""
+    _opts = ["Últimos 7 dias", "Últimos 30 dias", "Últimos 60 dias",
+             "Últimos 90 dias", "Personalizado"]
+    _map  = {"Últimos 7 dias": 7, "Últimos 30 dias": 30,
+             "Últimos 60 dias": 60, "Últimos 90 dias": 90}
+    _col_sel, _col_d1, _col_d2 = st.columns([2, 1.2, 1.2])
+    with _col_sel:
+        sel = st.selectbox("Período", _opts, key=f"{key}_sel", label_visibility="collapsed")
+    hoje = date.today()
+    if sel == "Personalizado":
+        with _col_d1:
+            dt_ini = st.date_input("De", value=hoje - timedelta(days=30),
+                                   key=f"{key}_d1", label_visibility="collapsed")
+        with _col_d2:
+            dt_fim = st.date_input("Até", value=hoje,
+                                   key=f"{key}_d2", label_visibility="collapsed")
+    else:
+        dias = _map[sel]
+        dt_ini = hoje - timedelta(days=dias)
+        dt_fim = hoje
+    return str(dt_ini), str(dt_fim)
 
 
 # ── Dialog: Configuração IA ───────────────────────────────────────────────────
@@ -94,24 +123,18 @@ _SVG_GEAR_ENC = urllib.parse.quote(_SVG_GEAR, safe="")
 def _dlg_cfg_ia() -> None:
     _prov_atual = _current_llm_provider()
     selected_provider = st.selectbox(
-        "Provedor",
-        ["ollama", "openrouter"],
+        "Provedor", ["ollama", "openrouter"],
         index=0 if _prov_atual == "ollama" else 1,
         key="dlg_provider",
         help="ollama = local on-prem (LGPD) | openrouter = API externa (só DEMO)",
     )
-
     if selected_provider == "ollama":
-        dlg_host = st.text_input(
-            "Host Ollama",
-            value=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-            key="dlg_host",
-        )
-        dlg_model = st.text_input(
-            "Modelo",
-            value=os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
-            key="dlg_model",
-        )
+        dlg_host = st.text_input("Host Ollama",
+                                 value=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+                                 key="dlg_host")
+        dlg_model = st.text_input("Modelo",
+                                  value=os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+                                  key="dlg_model")
         dlg_api_key = ""
         st.markdown(
             '<div style="padding:10px 14px;border-radius:8px;border:1px solid #1A2030;'
@@ -121,34 +144,31 @@ def _dlg_cfg_ia() -> None:
             unsafe_allow_html=True,
         )
     else:
-        dlg_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        dlg_model = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
-        dlg_api_key = st.text_input(
-            "API Key OpenRouter",
-            type="password",
-            value=os.getenv("OPENROUTER_API_KEY", ""),
-            key="dlg_api_key",
-        )
+        dlg_host    = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        dlg_model   = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+        dlg_api_key = st.text_input("API Key OpenRouter", type="password",
+                                    value=os.getenv("OPENROUTER_API_KEY", ""),
+                                    key="dlg_api_key")
         st.text_input("Modelo", value=dlg_model, key="dlg_or_model", disabled=True)
         st.markdown(
             '<div style="padding:10px 14px;border-radius:8px;'
             'border:1px solid rgba(255,107,122,0.3);'
             'background:rgba(255,107,122,0.06);'
             'font-size:12px;color:#FF6B7A;margin-top:12px;">'
-            'API externa — use apenas com dados sintéticos (DEMO). '
-            'Nunca envie dados reais de producao.</div>',
+            'API externa — use apenas com dados sintéticos (DEMO).</div>',
             unsafe_allow_html=True,
         )
-
     st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
     col_save, col_cancel = st.columns([3, 1])
     with col_save:
-        if st.button("Aplicar", type="primary", use_container_width=True, key="dlg_save"):
+        if st.button("Aplicar", type="primary", width="stretch", key="dlg_save"):
             _apply_llm_config(selected_provider, dlg_host, dlg_model, dlg_api_key)
             st.success(f"LLM alterado para {selected_provider}")
     with col_cancel:
-        if st.button("Fechar", use_container_width=True, key="dlg_cancel"):
+        if st.button("Fechar", width="stretch", key="dlg_cancel"):
             st.rerun()
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -156,9 +176,38 @@ def _dlg_cfg_ia() -> None:
 # ═══════════════════════════════════════════════════════════════════════════════
 ui.sidebar_brand()
 
-# Botão "Configuração › IA" com ícone gear SVG inline (sem emoji)
+try:
+    _resumo_g = db.resumo_geral()
+except Exception:
+    _resumo_g = {"eventos": 0, "pendencias": 0, "consultas": 0, "backend": "?"}
+ui.sidebar_status(_resumo_g)
+
+with st.sidebar.expander("Legenda de defeitos", expanded=False):
+    for canon, pt_name in FAULT_LABELS_PT.items():
+        if canon in ("normal", "baseline", "teste", "acelerando",
+                     "motor_desligado", "desconhecido"):
+            continue
+        st.markdown(
+            f'<div style="font-size:11px;color:{ui.TEXT_MUTED};line-height:1.8;">'
+            f'<b style="color:{ui.TEXT};">{pt_name}</b>'
+            f'<span style="font-family:monospace;color:{ui.TEXT_DIM};">'
+            f' · {canon}</span></div>',
+            unsafe_allow_html=True,
+        )
+
+# ── Configuração IA — rodapé da sidebar ──────────────────────────────────────
 st.sidebar.markdown(
     f"""<style>
+section[data-testid="stSidebar"] .block-container {{
+    display: flex !important;
+    flex-direction: column !important;
+    min-height: calc(100vh - 6rem) !important;
+}}
+.element-container:has(.cfg-ia-mk) {{
+    margin-top: auto !important;
+    padding-top: 10px !important;
+    border-top: 1px solid {ui.BORDER} !important;
+}}
 .element-container:has(.cfg-ia-mk) + .element-container button {{
     background: transparent !important;
     border: none !important;
@@ -194,375 +243,592 @@ st.sidebar.markdown(
 <span class="cfg-ia-mk" style="display:none;"></span>""",
     unsafe_allow_html=True,
 )
-if st.sidebar.button("Configuração  ›  IA", key="btn_cfg_ia", use_container_width=True):
+if st.sidebar.button("Configuração  ›  IA", key="btn_cfg_ia", width="stretch"):
     _dlg_cfg_ia()
-
-try:
-    _resumo_g = db.resumo_geral()
-except Exception:
-    _resumo_g = {"eventos": 0, "pendencias": 0, "consultas": 0, "backend": "?"}
-ui.sidebar_status(_resumo_g)
-
-with st.sidebar.expander("📖 Legenda de defeitos", expanded=False):
-    for canon, pt_name in FAULT_LABELS_PT.items():
-        if canon in ("normal", "baseline", "teste", "acelerando",
-                     "motor_desligado", "desconhecido"):
-            continue
-        st.markdown(
-            f'<div style="font-size:11px;color:{ui.TEXT_MUTED};line-height:1.8;">'
-            f'<b style="color:{ui.TEXT};">{pt_name}</b>'
-            f'<span style="font-family:monospace;color:{ui.TEXT_DIM};">'
-            f' · {canon}</span></div>',
-            unsafe_allow_html=True,
-        )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Abas
 # ═══════════════════════════════════════════════════════════════════════════════
-(tab_evento, tab_painel, tab_eventos,
- tab_pend, tab_analise, tab_chat) = st.tabs(
-    ["📡 Evento", "📊 Painel", "📋 Eventos",
-     "⚠️ Pendências", "🔍 Análise", "💬 Chat"]
-)
+(tab_overview, tab_nova, tab_pend, tab_resolvidos,
+ tab_analise, tab_chat, tab_relatorio) = st.tabs([
+    "Overview", "Nova Análise", "Pendências", "Resolvidos",
+    "Análise", "Chat", "Relatório IA",
+])
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Aba 0 — Evento
+# Aba 0 — Overview
 # ═══════════════════════════════════════════════════════════════════════════════
-with tab_evento:
-    ui.section("Analisar evento de sensor")
+with tab_overview:
+    try:
+        _ov_sem   = db.resumo_semaforo()
+        _ov_geral = db.resumo_geral()
+        _ov_top   = db.top_defeitos(limit=5)
+        _ov_rec   = db.listar_recentes(limit=4)
+    except Exception:
+        _ov_sem   = {"total": 0, "vermelho": 0, "amarelo": 0, "verde": 0, "abertos": []}
+        _ov_geral = {"eventos": 0, "pendencias": 0, "consultas": 0, "backend": "?"}
+        _ov_top   = []
+        _ov_rec   = []
 
-    col_left, col_right = st.columns([1.2, 1])
+    _ov_total  = _ov_sem.get("total", 0)
+    _ov_verm   = _ov_sem.get("vermelho", 0)
+    _ov_amar   = _ov_sem.get("amarelo", 0)
+    _ov_verd   = _ov_sem.get("verde", 0)
+    _ov_pend   = _ov_geral.get("pendencias", 0)
+    _ov_consul = _ov_geral.get("consultas", 0)
+    _ov_db     = _ov_geral.get("backend", "SQLite")
+    _ov_health = round((_ov_verd / _ov_total * 100) if _ov_total > 0 else 100)
+    _ov_hc     = ui.ACCENT if _ov_health >= 70 else (ui.WARN if _ov_health >= 40 else ui.DANGER)
+    _ov_pct_v  = round(_ov_verm / _ov_total * 100) if _ov_total else 0
+    _ov_pct_a  = round(_ov_amar / _ov_total * 100) if _ov_total else 0
+    _ov_pend_c = ui.DANGER if _ov_pend > 0 else ui.ACCENT
+    _ov_now    = pd.Timestamp.now().strftime("%d/%m/%Y %H:%M")
+    _ov_llm    = _current_llm_provider()
+    _ov_model  = os.getenv("OLLAMA_MODEL", "qwen2.5:3b")
+    _ov_lgpd     = _ov_llm == "ollama"
+    _ov_lgpd_c   = ui.ACCENT if _ov_lgpd else ui.DANGER
+    _ov_lgpd_bg  = "rgba(16,245,163,0.06)" if _ov_lgpd else "rgba(255,107,122,0.06)"
+    _ov_lgpd_brd = "rgba(16,245,163,0.2)"  if _ov_lgpd else "rgba(255,107,122,0.2)"
+    _ov_lgpd_txt = "✓ Processamento local — LGPD" if _ov_lgpd else "⚠ API externa — DEMO"
+    _ov_cov_doc  = sum(1 for v in FAULT_DOC_MAP.values() if v)
+    _ov_cov_tot  = len(FAULT_DOC_MAP)
+    _ov_cov_pct  = round(_ov_cov_doc / _ov_cov_tot * 100)
+    _ds          = _dataset_stats()
 
-    with col_left:
+    # ── Hero ─────────────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="display:flex;align-items:flex-start;'
+        f'justify-content:space-between;padding:20px 0 14px 0;">'
+        f'<div>'
+        f'<div style="font-size:26px;font-weight:800;color:{ui.TEXT};'
+        f'letter-spacing:-0.5px;line-height:1.2;">'
+        f'Sistema de Manutenção Prescritiva</div>'
+        f'</div>'
+        f'<div style="display:flex;flex-direction:column;align-items:flex-end;'
+        f'gap:6px;flex-shrink:0;margin-left:20px;">'
+        f'<div style="display:inline-flex;align-items:center;gap:8px;'
+        f'padding:6px 14px;border-radius:999px;'
+        f'background:rgba(16,245,163,0.08);border:1px solid rgba(16,245,163,0.25);">'
+        f'<span class="mp-ov-pulse"></span>'
+        f'<span style="font-size:12px;font-weight:700;color:{ui.ACCENT};'
+        f'letter-spacing:0.5px;">ONLINE</span></div>'
+        f'<div style="font-size:11px;color:{ui.TEXT_DIM};">Atualizado {_ov_now}</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── KPI Strip — eventos no banco ─────────────────────────────────────────
+    _kpi_defs = [
+        ("Total Eventos",  str(_ov_total),  ui.TEXT,     "no banco de dados"),
+        ("Críticos",       str(_ov_verm),   ui.DANGER,  f"{_ov_pct_v}% do total"),
+        ("Atenção",        str(_ov_amar),   ui.WARN,    f"{_ov_pct_a}% do total"),
+        ("Pendências",     str(_ov_pend),   _ov_pend_c, "sem resolução"),
+        ("Consultas Q&A",  str(_ov_consul), ui.INFO,    "chat · Telegram"),
+    ]
+    _kpi_html = ""
+    for _ki, (_kl, _kv, _kc, _ks) in enumerate(_kpi_defs):
+        _kpl = "4px" if _ki == 0 else "24px"
+        _kpr = "4px" if _ki == 4 else "24px"
+        _kbl = f"border-left:1px solid {ui.BORDER};" if _ki > 0 else ""
+        _kpi_html += (
+            f'<div style="flex:1;padding:0 {_kpr} 0 {_kpl};{_kbl}">'
+            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:6px;">{_kl}</div>'
+            f'<div style="font-size:30px;font-weight:800;color:{_kc};'
+            f'line-height:1;font-variant-numeric:tabular-nums;">{_kv}</div>'
+            f'<div style="font-size:11px;color:{ui.TEXT_DIM};margin-top:5px;">{_ks}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+        f'border-top:1px solid rgba(16,245,163,0.22);border-radius:14px;'
+        f'padding:22px 4px;margin-bottom:16px;display:flex;align-items:stretch;">'
+        + _kpi_html + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Dataset Stats Strip ───────────────────────────────────────────────────
+    _ds_items = [
+        ("Dataset de treino", f"{_ds['registros']:,}".replace(",", "."), "registros banner_clean"),
+        ("Acurácia Random Forest", "87,9%",   "166k × 18 features"),
+        ("Cobertura RAG",          f"{_ov_cov_doc}/{_ov_cov_tot}", f"{_ov_cov_pct}% · 61 chunks · TF-IDF"),
+    ]
+    _ds_html = ""
+    for _di, (_dl, _dv, _ds2) in enumerate(_ds_items):
+        _dbl = f"border-left:1px solid {ui.BORDER};" if _di > 0 else ""
+        _ds_html += (
+            f'<div style="flex:1;padding:0 20px;{_dbl}">'
+            f'<div style="font-size:9px;letter-spacing:0.7px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:4px;">{_dl}</div>'
+            f'<div style="font-size:18px;font-weight:700;color:{ui.TEXT_MUTED};'
+            f'font-variant-numeric:tabular-nums;">{_dv}</div>'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};margin-top:2px;">{_ds2}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        f'<div style="background:rgba(16,20,28,0.6);border:1px solid {ui.BORDER};'
+        f'border-radius:10px;padding:14px 4px;margin-bottom:24px;'
+        f'display:flex;align-items:stretch;">'
+        + _ds_html + '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Atividade + Top Defeitos ──────────────────────────────────────────────
+    _col_act, _col_top_def = st.columns([3, 2])
+
+    with _col_act:
         st.markdown(
-            f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-bottom:10px;">'
-            f'Cole o JSON do sensor ou faça upload do arquivo. '
-            f'O sistema classifica via KNN, calcula o semáforo e consulta o RAG.'
+            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:10px;">'
+            f'Atividade — Últimos 7 dias</div>',
+            unsafe_allow_html=True,
+        )
+        try:
+            _serie7 = db.serie_temporal_resolvidos(dias=7)
+            if _serie7:
+                _df7 = pd.DataFrame(_serie7)
+                _fig7 = px.bar(
+                    _df7, x="dia", y=["abertos", "resolvidos"],
+                    barmode="group",
+                    color_discrete_map={"abertos": ui.DANGER, "resolvidos": ui.ACCENT},
+                    labels={"value": "", "dia": "", "variable": ""},
+                )
+                _fig7.update_layout(
+                    height=230,
+                    paper_bgcolor=ui.CARD_BG,
+                    plot_bgcolor=ui.CARD_BG,
+                    font=dict(color=ui.TEXT_MUTED, size=10),
+                    margin=dict(l=4, r=4, t=20, b=36),
+                    legend=dict(
+                        bgcolor="rgba(0,0,0,0)", orientation="h",
+                        x=0.5, y=-0.14, xanchor="center", yanchor="top",
+                        font=dict(size=10),
+                    ),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=9, color=ui.TEXT_DIM)),
+                    yaxis=dict(gridcolor=ui.BORDER, showgrid=True,
+                               tickfont=dict(size=9, color=ui.TEXT_DIM), zeroline=False),
+                    bargap=0.3, bargroupgap=0.08,
+                )
+                _fig7.update_traces(marker_line_width=0)
+                st.plotly_chart(_fig7, width="stretch")
+            else:
+                st.markdown(
+                    f'<div style="height:80px;display:flex;align-items:center;'
+                    f'color:{ui.TEXT_DIM};font-size:13px;">'
+                    f'Nenhum evento nos últimos 7 dias</div>',
+                    unsafe_allow_html=True,
+                )
+        except Exception as _e7:
+            st.error(str(_e7))
+
+    with _col_top_def:
+        st.markdown(
+            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:10px;">'
+            f'Top Defeitos</div>',
+            unsafe_allow_html=True,
+        )
+        if _ov_top:
+            _max_cnt = _ov_top[0]["count"]
+            _bars_h = ""
+            for _td in _ov_top:
+                _bpct = round(_td["count"] / _max_cnt * 100) if _max_cnt else 0
+                _bc   = ui.ACCENT if _td["documented"] else ui.DANGER
+                _dlbl = label_pt(_td["defeito"])
+                _bars_h += (
+                    f'<div style="margin-bottom:14px;">'
+                    f'<div style="display:flex;justify-content:space-between;'
+                    f'align-items:center;margin-bottom:5px;">'
+                    f'<span style="font-size:12px;color:{ui.TEXT};font-weight:500;'
+                    f'max-width:170px;white-space:nowrap;overflow:hidden;'
+                    f'text-overflow:ellipsis;" title="{_td["defeito"]}">{_dlbl}</span>'
+                    f'<span style="font-size:12px;color:{ui.TEXT_MUTED};'
+                    f'font-variant-numeric:tabular-nums;flex-shrink:0;'
+                    f'margin-left:8px;">{_td["count"]}</span></div>'
+                    f'<div style="height:4px;background:{ui.BORDER};'
+                    f'border-radius:2px;overflow:hidden;">'
+                    f'<div style="height:100%;width:{_bpct}%;background:{_bc};'
+                    f'border-radius:2px;box-shadow:0 0 6px {_bc}66;"></div>'
+                    f'</div></div>'
+                )
+            st.markdown(
+                f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+                f'border-radius:14px;padding:18px 20px;">' + _bars_h + '</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Nenhum defeito registrado ainda.")
+
+    # ── Bottom cards: Saúde · Ocorrências · Infraestrutura ───────────────────
+    st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+    _col_saude, _col_evs, _col_infra = st.columns(3)
+
+    with _col_saude:
+        st.markdown(
+            f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+            f'border-radius:14px;padding:20px 22px;">'
+            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:16px;">Saúde do Parque</div>'
+            f'<div style="text-align:center;margin-bottom:14px;">'
+            f'<div style="font-size:52px;font-weight:800;color:{_ov_hc};'
+            f'line-height:1;font-variant-numeric:tabular-nums;">{_ov_health}%</div>'
+            f'<div style="font-size:11px;color:{ui.TEXT_DIM};margin-top:6px;">'
+            f'motores em estado OK</div></div>'
+            f'<div style="height:6px;background:{ui.BORDER};border-radius:3px;'
+            f'margin-bottom:16px;">'
+            f'<div style="height:100%;width:{_ov_health}%;background:{_ov_hc};'
+            f'border-radius:3px;box-shadow:0 0 10px {_ov_hc}66;"></div></div>'
+            f'<div style="display:flex;flex-direction:column;gap:8px;">'
+            f'<div style="display:flex;justify-content:space-between;">'
+            f'<span style="font-size:12px;color:{ui.TEXT_MUTED};">Crítico</span>'
+            f'<span style="font-size:13px;font-weight:700;color:{ui.DANGER};'
+            f'font-variant-numeric:tabular-nums;">{_ov_verm}</span></div>'
+            f'<div style="display:flex;justify-content:space-between;">'
+            f'<span style="font-size:12px;color:{ui.TEXT_MUTED};">Atenção</span>'
+            f'<span style="font-size:13px;font-weight:700;color:{ui.WARN};'
+            f'font-variant-numeric:tabular-nums;">{_ov_amar}</span></div>'
+            f'<div style="display:flex;justify-content:space-between;">'
+            f'<span style="font-size:12px;color:{ui.TEXT_MUTED};">OK</span>'
+            f'<span style="font-size:13px;font-weight:700;color:{ui.ACCENT};'
+            f'font-variant-numeric:tabular-nums;">{_ov_verd}</span></div>'
+            f'</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    with _col_evs:
+        _ev_rows_h = ""
+        for _er in _ov_rec:
+            _er_sc  = {"🔴": ui.DANGER, "🟡": ui.WARN, "🟢": ui.ACCENT}.get(
+                _er["semaforo"], ui.TEXT_MUTED)
+            _er_ts  = (_er.get("ts") or "")[:10]
+            _er_def = label_pt(_er["defeito"])
+            _er_st  = _er.get("status", "").upper()
+            _ev_rows_h += (
+                f'<div style="display:flex;align-items:center;gap:10px;'
+                f'padding:9px 0;border-bottom:1px solid {ui.BORDER};">'
+                f'<span style="font-size:16px;flex-shrink:0;">{_er["semaforo"]}</span>'
+                f'<div style="flex:1;min-width:0;">'
+                f'<div style="font-size:12px;color:{ui.TEXT};font-weight:600;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'#{_er["id"]} {_er_def}</div>'
+                f'<div style="font-size:10px;color:{ui.TEXT_DIM};">{_er_ts}</div>'
+                f'</div>'
+                f'<span style="font-size:9px;font-weight:700;color:{_er_sc};'
+                f'flex-shrink:0;letter-spacing:0.3px;">{_er_st}</span>'
+                f'</div>'
+            )
+        st.markdown(
+            f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+            f'border-radius:14px;padding:18px 20px;">'
+            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:4px;">'
+            f'Últimas Ocorrências</div>'
+            + (_ev_rows_h or f'<div style="color:{ui.TEXT_DIM};font-size:12px;'
+               f'padding-top:10px;">Sem eventos registrados</div>')
+            + '</div>',
+            unsafe_allow_html=True,
+        )
+
+    with _col_infra:
+        st.markdown(
+            f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+            f'border-radius:14px;padding:20px 22px;">'
+            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:14px;">Infraestrutura</div>'
+            f'<div style="margin-bottom:12px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};margin-bottom:3px;">Modelo IA</div>'
+            f'<div style="font-size:13px;color:{ui.TEXT};font-weight:600;">{_ov_llm}</div>'
+            f'<div style="font-size:11px;color:{ui.TEXT_MUTED};">{_ov_model}</div>'
+            f'</div>'
+            f'<div style="margin-bottom:12px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};margin-bottom:3px;">'
+            f'Banco de Dados</div>'
+            f'<div style="font-size:13px;color:{ui.TEXT};font-weight:600;">{_ov_db}</div>'
+            f'</div>'
+            f'<div style="margin-bottom:14px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};margin-bottom:3px;">'
+            f'Features · Classes</div>'
+            f'<div style="font-size:13px;color:{ui.TEXT};font-weight:600;">'
+            f'{_ds["features"]} features · 17 classes</div>'
+            f'<div style="font-size:11px;color:{ui.TEXT_MUTED};">'
+            f'acc RF 87,9%</div>'
+            f'</div>'
+            f'<div style="padding:8px 12px;border-radius:8px;'
+            f'background:{_ov_lgpd_bg};border:1px solid {_ov_lgpd_brd};'
+            f'font-size:11px;color:{_ov_lgpd_c};font-weight:600;">'
+            f'{_ov_lgpd_txt}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-        # Upload de arquivo JSON
-        _uploaded = st.file_uploader(
-            "Upload JSON do sensor",
-            type=["json", "txt"],
-            key="ev_upload",
-            help="Arquivo .json ou .txt com o payload do sensor",
-        )
-        if _uploaded is not None:
-            try:
-                _file_content = _uploaded.read().decode("utf-8")
-                json.loads(_file_content)  # valida antes de aceitar
-                st.session_state["evento_json_override"] = _file_content
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Arquivo inválido: {exc}")
 
-        _exemplo = ""
+# ═══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
+# Aba — Nova Análise  (helper em módulo — fora do with tab_nova)
+# ═══════════════════════════════════════════════════════════════════════════════
+import re as _re
 
-        _textarea_val = st.session_state.pop("evento_json_override", _exemplo)
-        json_input = st.text_area(
-            "JSON do evento",
-            value=_textarea_val,
-            height=220,
-            key="evento_json",
-            help="Qualquer subconjunto das 24 features de vibração.",
-        )
 
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            analisar = st.button(
-                "Analisar", type="primary",
-                use_container_width=True, key="btn_analisar",
-            )
-        with col_btn2:
-            if st.button("Limpar", use_container_width=True, key="btn_clear"):
-                for k in ("evento_resultado", "evento_erro"):
-                    st.session_state.pop(k, None)
-                st.rerun()
+def _limpar_prescricao(texto: str) -> str:
+    """Normaliza o texto do LLM para diagramação limpa e uniforme.
 
-    with col_right:
+    Remove: **bold**, *italico*, listas markdown inconsistentes.
+    Colapsa: linhas em branco excessivas.
+    Padroniza: numeração e indentação.
+    """
+    t = texto
+    # Remove bold/italico markdown
+    t = _re.sub(r'\*\*(.+?)\*\*', r'\1', t)     # **bold** → bold
+    t = _re.sub(r'\*(.+?)\*', r'\1', t)           # *italic* → italic
+    t = _re.sub(r'__([^_]+)__', r'\1', t)          # __bold__ → bold
+    t = _re.sub(r'(?<!\w)_([^_]+)_(?!\w)', r'\1', t)  # _italic_ → italic
+    # Remove marcadores de lista markdown
+    t = _re.sub(r'^[\s]*[-•]\s+', '  • ', t, flags=_re.MULTILINE)
+    t = _re.sub(r'^[\s]*o\s+', '  • ', t, flags=_re.MULTILINE)
+    # Remove numeração markdown solta (ex: "1.\n\n**bold:**" → "1. bold:")
+    t = _re.sub(r'^(\d+)\.\s*\n+\s*', r'\1. ', t, flags=_re.MULTILINE)
+    # Colapsa 3+ linhas brancas em 2
+    t = _re.sub(r'\n{3,}', '\n\n', t)
+    # Remove espaços trailing por linha
+    t = '\n'.join(line.rstrip() for line in t.split('\n'))
+    return t.strip()
+
+
+def _na_show_operador(res: dict) -> None:
+    """Relatório focado no operador — o que aconteceu e o que fazer."""
+    _sem  = res.get("semaforo", "🟢")
+    _def  = res.get("defeito_canonico", res.get("defeito", "—"))
+    _prob = res.get("is_problem", False)
+    _doc  = res.get("documented", False)
+    _freq = res.get("frequency_per_week", 0.0)
+    _sc   = {"🔴": ui.DANGER, "🟡": ui.WARN, "🟢": ui.ACCENT}.get(_sem, ui.TEXT_MUTED)
+    _sem_label = {"🔴": "CRÍTICO", "🟡": "ATENÇÃO", "🟢": "OK"}.get(_sem, "—")
+    _def_pt = _fmt_defeito(_def)
+
+    # ── Header: semáforo grande + defeito ──────────────────────────────────────
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:24px;'
+        f'padding:24px 0 16px 0;">'
+        f'<div style="font-size:72px;line-height:1;">{_sem}</div>'
+        f'<div>'
+        f'<div style="font-size:28px;font-weight:700;color:{_sc};">{_def_pt}</div>'
+        f'<div style="font-size:13px;color:{ui.TEXT_MUTED};margin-top:4px;">'
+        f'{_sem_label} · '
+        f'{"Defeito detectado" if _prob else "Estado operacional normal"}'
+        f' · {_freq:.1f} ocorrências/semana'
+        f'</div></div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── KPIs compactos ─────────────────────────────────────────────────────────
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
         st.markdown(
-            f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-bottom:8px;">'
-            f'Ou monte o payload por campos:</div>',
+            f'<div class="mp-glow" style="text-align:center;padding:14px 8px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};text-transform:uppercase;'
+            f'letter-spacing:0.6px;">Frequência</div>'
+            f'<div style="font-size:22px;font-weight:700;color:{ui.TEXT};'
+            f'margin-top:4px;">{_freq:.1f}<span style="font-size:12px;'
+            f'color:{ui.TEXT_MUTED};"> /sem</span></div></div>',
             unsafe_allow_html=True,
         )
-        _rpm = st.number_input("RPM", min_value=0, max_value=6000, value=0,
-                               step=50, key="ev_rpm")
-        _temp = st.number_input("Temperatura (°C)", min_value=0.0, max_value=200.0,
-                                value=0.0, step=0.5, key="ev_temp")
-        _zrms = st.number_input("Z RMS velocity (mm/s)", min_value=0.0, max_value=50.0,
-                                value=0.0, step=0.1, key="ev_zrms")
-        _xrms = st.number_input("X RMS velocity (mm/s)", min_value=0.0, max_value=50.0,
-                                value=0.0, step=0.1, key="ev_xrms")
-        _zkurt = st.number_input("Z Kurtosis", min_value=0.0, max_value=30.0,
-                                 value=0.0, step=0.1, key="ev_zkurt")
-        if st.button("Usar estes campos →", use_container_width=True, key="btn_campos"):
-            st.session_state["evento_json_override"] = json.dumps({
-                "rpm": _rpm,
-                "temperature_c": _temp,
-                "z_rms_velocity_mm_s": _zrms,
-                "x_rms_velocity_mm_s": _xrms,
-                "z_kurtosis": _zkurt,
-            }, indent=2)
-            st.rerun()
+    with k2:
+        _doc_label = "SIM" if _doc else "NÃO"
+        _doc_color = ui.ACCENT if _doc else ui.DANGER
+        st.markdown(
+            f'<div class="mp-glow" style="text-align:center;padding:14px 8px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};text-transform:uppercase;'
+            f'letter-spacing:0.6px;">Manual Técnico</div>'
+            f'<div style="font-size:22px;font-weight:700;color:{_doc_color};'
+            f'margin-top:4px;">{_doc_label}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with k3:
+        _n_sim = res.get("n_similar", 0)
+        st.markdown(
+            f'<div class="mp-glow" style="text-align:center;padding:14px 8px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};text-transform:uppercase;'
+            f'letter-spacing:0.6px;">Eventos Similares</div>'
+            f'<div style="font-size:22px;font-weight:700;color:{ui.TEXT};'
+            f'margin-top:4px;">{_n_sim:,}</div></div>',
+            unsafe_allow_html=True,
+        )
+    with k4:
+        _id_salvo = res.get("id_salvo")
+        _id_label = f"#{_id_salvo}" if _id_salvo else "—"
+        st.markdown(
+            f'<div class="mp-glow" style="text-align:center;padding:14px 8px;">'
+            f'<div style="font-size:10px;color:{ui.TEXT_DIM};text-transform:uppercase;'
+            f'letter-spacing:0.6px;">Evento Salvo</div>'
+            f'<div style="font-size:22px;font-weight:700;color:{ui.TEXT};'
+            f'margin-top:4px;">{_id_label}</div></div>',
+            unsafe_allow_html=True,
+        )
 
-    if analisar:
-        st.session_state.pop("evento_resultado", None)
-        st.session_state.pop("evento_erro", None)
+    st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
+
+    # ── Prescrição (card grande) ───────────────────────────────────────────────
+    _instr = res.get("instructions", "")
+    if _instr:
+        _instr = _limpar_prescricao(_instr)
+    if _instr:
+        _border = ui.ACCENT if _prob else ui.INFO
+        st.markdown(
+            f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+            f'border-left:4px solid {_border};border-radius:12px;padding:20px 24px;">'
+            f'<div style="font-size:11px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.TEXT_DIM};margin-bottom:12px;">📋 Procedimento de Correção</div>'
+            f'<div style="color:{ui.TEXT};font-size:15px;line-height:1.9;'
+            f'white-space:pre-wrap;">{_instr}</div></div>',
+            unsafe_allow_html=True,
+        )
+    elif _prob and not _doc:
+        st.markdown(
+            f'<div style="background:rgba(255,107,122,0.08);border:1px solid '
+            f'rgba(255,107,122,0.3);border-left:4px solid {ui.DANGER};'
+            f'border-radius:12px;padding:20px 24px;">'
+            f'<div style="font-size:11px;letter-spacing:0.8px;text-transform:uppercase;'
+            f'color:{ui.DANGER};margin-bottom:12px;">⚠ Sem Procedimento Documentado</div>'
+            f'<div style="color:{ui.TEXT};font-size:14px;line-height:1.8;">'
+            f'Não existe manual técnico para <b>{_def_pt}</b>. '
+            f'Uma pendência foi registrada automaticamente para que o '
+            f'documento seja cadastrado.</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Fontes RAG ─────────────────────────────────────────────────────────────
+    _fontes = res.get("sources", [])
+    if _fontes:
+        st.markdown(
+            f'<div style="font-size:11px;color:{ui.TEXT_DIM};margin-top:12px;">'
+            f'📎 Fontes: {", ".join(_fontes)}</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown('<div style="height:20px;"></div>', unsafe_allow_html=True)
+
+    # ── Botão voltar ───────────────────────────────────────────────────────────
+    if st.button("← Nova análise", key="na_btn_voltar", width="stretch"):
+        st.session_state.pop("na_resultado", None)
+        st.rerun()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_nova:
+    # ── Estado: resultado pronto → mostra relatório do operador ────────────────
+    if "na_resultado" in st.session_state:
+        _na_show_operador(st.session_state["na_resultado"])
+
+    # ── Estado: processando → mostra spinner (tudo o que veio antes some) ──────
+    elif "na_payload_analisar" in st.session_state:
+        _na_slot = st.empty()
+        with _na_slot.container():
+            st.markdown(
+                f'<div style="text-align:center;padding:60px 0;">'
+                f'<div style="font-size:48px;margin-bottom:16px;">⚙️</div>'
+                f'<div style="font-size:18px;font-weight:600;color:{ui.TEXT};">'
+                f'Analisando evento...</div>'
+                f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-top:8px;">'
+                f'Classificação KNN + prescrição RAG</div></div>',
+                unsafe_allow_html=True,
+            )
+        _na_json_str = st.session_state.pop("na_payload_analisar")
         try:
-            payload = json.loads(json_input)
+            _na_payload = json.loads(_na_json_str)
         except json.JSONDecodeError as exc:
+            _na_slot.empty()
             st.error(f"JSON inválido: {exc}")
-            payload = None
-        if payload is not None:
-            with st.spinner("Executando análise — classificando defeito + consultando RAG..."):
-                try:
-                    resultado = responder_evento(payload, origem="streamlit")
-                    st.session_state["evento_resultado"] = resultado
-                    st.toast("Análise concluída", icon="✅")
-                except Exception as exc:
-                    st.session_state["evento_erro"] = str(exc)
+            _na_payload = None
+        if _na_payload is not None:
+            try:
+                _na_res = responder_evento(_na_payload, origem="streamlit")
+                st.session_state["na_resultado"] = _na_res
+                st.rerun()
+            except Exception as exc:
+                _na_slot.empty()
+                st.error(f"Erro na análise: {exc}")
 
-    if "evento_resultado" in st.session_state:
-        res = st.session_state["evento_resultado"]
-        sem = res.get("semaforo", "🟢")
-        defeito = res.get("canonical_fault", res.get("defeito", "—"))
-        _sem_color_map = {"🔴": ui.DANGER, "🟡": ui.WARN, "🟢": ui.ACCENT}
-        sem_c = _sem_color_map.get(sem, ui.TEXT_MUTED)
-        _is_prob = res.get("is_problem", False)
-        _doc = res.get("documented", False)
-        _freq = res.get("frequency_per_week", 0.0)
-        _id = res.get("id_salvo")
-        _fmt_def = _fmt_defeito(defeito)
-
-        st.markdown("---")
-        col_s, col_d = st.columns([0.28, 1.72])
-        with col_s:
-            st.markdown(
-                f'<div style="font-size:64px;text-align:center;line-height:1.1;">{sem}</div>',
-                unsafe_allow_html=True,
-            )
-        with col_d:
-            st.markdown(
-                f'<div style="font-size:22px;font-weight:700;color:{sem_c};'
-                f'padding-top:8px;">{_fmt_def}</div>',
-                unsafe_allow_html=True,
-            )
-            tags = []
-            tags.append("DEFEITO" if _is_prob else "ESTADO NORMAL")
-            tags.append("COM manual" if _doc else "SEM manual")
-            tags.append(f"{_freq:.1f}/sem")
-            if _id:
-                tags.append(f"ID #{_id} salvo")
-            st.markdown(
-                f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-top:4px;">'
-                + " · ".join(tags) + "</div>",
-                unsafe_allow_html=True,
-            )
-
-        instrucoes = res.get("instructions", "")
-        if instrucoes:
-            st.markdown(
-                f'<div class="mp-card" style="margin-top:14px;">'
-                f'<div style="font-size:10px;letter-spacing:0.8px;'
-                f'text-transform:uppercase;color:{ui.TEXT_DIM};margin-bottom:8px;">'
-                f'Prescrição</div>'
-                f'<div style="color:{ui.TEXT};font-size:14px;line-height:1.7;'
-                f'white-space:pre-wrap;">{instrucoes}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-        if not _doc and _is_prob:
-            st.warning(
-                f"**{_fmt_def}** sem procedimento documentado. "
-                f"Pendência registrada — solicitar elaboração de manual técnico."
-            )
-
-        fontes = res.get("sources", [])
-        if fontes:
-            st.markdown(
-                f'<div style="font-size:11px;color:{ui.TEXT_DIM};margin-top:6px;">'
-                f'📄 Fonte RAG: {", ".join(fontes)}</div>',
-                unsafe_allow_html=True,
-            )
-
-    if "evento_erro" in st.session_state:
-        st.error(st.session_state["evento_erro"])
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Aba 1 — Painel
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab_painel:
-    ui.section("KPIs — Semáforo do parque")
-    try:
-        resumo_sem = db.resumo_semaforo()
-        ui.kpi_semaforo(resumo_sem)
-    except Exception as exc:
-        st.error(f"Erro ao carregar semáforo: {exc}")
-        resumo_sem = {"total": 0, "vermelho": 0, "amarelo": 0, "verde": 0, "abertos": []}
-
-    ui.section("Série temporal — últimos 30 dias")
-    try:
-        serie = db.serie_temporal_resolvidos(dias=30)
-        if serie:
-            df_serie = pd.DataFrame(serie)
-            fig_serie = px.line(
-                df_serie, x="dia", y=["resolvidos", "abertos"],
-                color_discrete_map={"resolvidos": ui.ACCENT, "abertos": ui.DANGER},
-                labels={"value": "Eventos", "dia": "Data", "variable": "Status"},
-                title="Eventos resolvidos (🟢) vs abertos por dia",
-            )
-            fig_serie.update_layout(
-                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.BG,
-                font=dict(color=ui.TEXT),
-                legend=dict(bgcolor=ui.CARD_BG, bordercolor=ui.BORDER),
-            )
-            st.plotly_chart(fig_serie, use_container_width=True)
-        else:
-            st.info("Sem dados de série temporal no período.")
-    except Exception as exc:
-        st.error(f"Erro na série temporal: {exc}")
-
-    ui.section("Eventos críticos / atenção abertos")
-    try:
-        abertos = resumo_sem.get("abertos", [])
-        if abertos:
-            for ev in abertos:
-                sem_color = ui.DANGER if ev["semaforo"] == "🔴" else ui.WARN
-                _def_fmt = _fmt_defeito(ev["defeito"])
-                st.markdown(
-                    f'<div class="mp-card" style="border-left:3px solid {sem_color};">'
-                    f'<b style="color:{ui.TEXT};">#{ev["id"]} — {_def_fmt}</b>'
-                    f'&nbsp;{ui.badge_semaforo(ev["semaforo"])}&nbsp;'
-                    f'<span style="color:{ui.TEXT_MUTED};font-size:12px;">'
-                    f'{ev["frequency_per_week"]:.1f}/sem'
-                    f' · {"COM" if ev["documented"] else "SEM"} manual'
-                    f'</span></div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.success("Nenhum evento crítico aberto.")
-    except Exception as exc:
-        st.error(f"Erro ao listar abertos: {exc}")
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Aba 2 — Eventos
-# ═══════════════════════════════════════════════════════════════════════════════
-with tab_eventos:
-    ui.section("Filtros")
-    col_f1, col_f2, col_f3 = st.columns(3)
-    with col_f1:
-        filtro_status = st.selectbox(
-            "Status",
-            ["(todos)", "pendente", "em_andamento", "resolvido", "descartado"],
-        )
-    with col_f2:
-        filtro_sem = st.selectbox("Semáforo", ["(todos)", "🔴", "🟡", "🟢"])
-    with col_f3:
-        filtro_defeito = st.text_input(
-            "Defeito (técnico ou português)",
-            placeholder="ex: eccentric_rotor ou Rotor",
-        )
-
-    try:
-        status_f = None if filtro_status == "(todos)" else filtro_status
-        sem_f = None if filtro_sem == "(todos)" else filtro_sem
-        eventos = db.listar_eventos(limit=200, status_filter=status_f,
-                                    semaforo_filter=sem_f)
-        def_f = filtro_defeito.strip().lower()
-        if def_f:
-            eventos = [
-                e for e in eventos
-                if def_f in e["defeito"].lower()
-                or def_f in label_pt(e["defeito"]).lower()
-            ]
-    except Exception as exc:
-        st.error(f"Erro ao listar eventos: {exc}")
-        eventos = []
-
-    ui.section(f"Eventos ({len(eventos)}) — ordenados 🔴 → 🟡 → 🟢")
-
-    if not eventos:
-        st.info("Nenhum evento encontrado com os filtros aplicados.")
+    # ── Estado: formulário → upload + textarea + campos ────────────────────────
     else:
-        if "editar_id" not in st.session_state:
-            st.session_state["editar_id"] = None
+        st.markdown(
+            f'<div style="padding:18px 0 16px 0;">'
+            f'<div style="font-size:20px;font-weight:700;color:{ui.TEXT};">'
+            f'Nova Análise</div>'
+            f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-top:4px;">'
+            f'Envie o JSON do sensor — o sistema classifica e prescreve a correção</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
-        _sem_color_map = {"🔴": ui.DANGER, "🟡": ui.WARN, "🟢": ui.ACCENT}
+        # ── Upload: detecta arquivo, salva em session_state, dispara análise ───
+        _na_upload = st.file_uploader(
+            "Upload JSON", type=["json", "txt"], key="na_upload",
+            label_visibility="collapsed",
+        )
+        if _na_upload is not None:
+            try:
+                _uc = _na_upload.read().decode("utf-8")
+                json.loads(_uc)  # valida JSON
+                st.session_state["na_payload_analisar"] = _uc
+                st.rerun()
+            except Exception as _ue:
+                st.error(f"Arquivo inválido: {_ue}")
 
-        for ev in eventos:
-            sem_c = _sem_color_map.get(ev["semaforo"], ui.TEXT_MUTED)
-            ts_str = (ev.get("ts") or "")[:10]
-            freq = ev.get("frequency_per_week", 0.0)
-            doc_tag = "COM doc" if ev.get("documented") else "SEM doc"
-            _def_fmt = _fmt_defeito(ev["defeito"])
-
-            cols = st.columns([0.4, 2.6, 1.4, 1.2, 1.6, 0.8])
-            with cols[0]:
+        # ── Textarea + campos manuais (só aparece se não fez upload) ───────────
+        if "na_payload_analisar" not in st.session_state:
+            _na_left, _na_right = st.columns([1.3, 1])
+            with _na_left:
+                _prefill_val = st.session_state.pop("na_json_prefill_manual", "")
+                _na_json = st.text_area(
+                    "JSON do evento",
+                    value=_prefill_val,
+                    height=240,
+                    key="na_textarea",
+                    placeholder='{"rpm": 1750, "z_rms_velocity_mm_s": 4.2, '
+                                '"z_kurtosis": 3.1, "temperature_c": 65.0}',
+                    label_visibility="collapsed",
+                )
+            with _na_right:
                 st.markdown(
-                    f'<div style="padding-top:8px;font-size:20px;">{ev["semaforo"]}</div>',
+                    f'<div style="font-size:12px;color:{ui.TEXT_MUTED};'
+                    f'margin-bottom:10px;margin-top:2px;">Ou preencha os campos:</div>',
                     unsafe_allow_html=True,
                 )
-            with cols[1]:
-                st.markdown(
-                    f'<div style="padding-top:8px;color:{ui.TEXT};font-weight:600;">'
-                    f'#{ev["id"]} {_def_fmt}</div>',
-                    unsafe_allow_html=True,
-                )
-            with cols[2]:
-                st.markdown(
-                    f'<div style="padding-top:8px;">{ui.badge_status(ev["status"])}</div>',
-                    unsafe_allow_html=True,
-                )
-            with cols[3]:
-                st.markdown(
-                    f'<div style="padding-top:8px;color:{ui.TEXT_MUTED};font-size:12px;">'
-                    f'{ts_str}</div>',
-                    unsafe_allow_html=True,
-                )
-            with cols[4]:
-                st.markdown(
-                    f'<div style="padding-top:8px;color:{ui.TEXT_MUTED};font-size:12px;">'
-                    f'{freq:.1f}/sem · {doc_tag}</div>',
-                    unsafe_allow_html=True,
-                )
-            with cols[5]:
-                btn_label = "Fechar" if st.session_state.get("editar_id") == ev["id"] else "Editar"
-                if st.button(btn_label, key=f"btn_edit_{ev['id']}"):
-                    st.session_state["editar_id"] = (
-                        None if st.session_state.get("editar_id") == ev["id"]
-                        else ev["id"]
-                    )
+                _na_rpm   = st.number_input("RPM", 0, 6000, 0, 50, key="na_rpm")
+                _na_temp  = st.number_input("Temperatura (°C)", 0.0, 200.0, 0.0, 0.5, key="na_temp")
+                _na_zrms  = st.number_input("Z RMS velocity (mm/s)", 0.0, 50.0, 0.0, 0.1, key="na_zrms")
+                _na_xrms  = st.number_input("X RMS velocity (mm/s)", 0.0, 50.0, 0.0, 0.1, key="na_xrms")
+                _na_zkurt = st.number_input("Z Kurtosis", 0.0, 30.0, 0.0, 0.1, key="na_zkurt")
+                if st.button("Usar campos →", width="stretch", key="na_btn_campos"):
+                    st.session_state["na_json_prefill_manual"] = json.dumps({
+                        "rpm": _na_rpm, "temperature_c": _na_temp,
+                        "z_rms_velocity_mm_s": _na_zrms,
+                        "x_rms_velocity_mm_s": _na_xrms,
+                        "z_kurtosis": _na_zkurt,
+                    }, indent=2)
                     st.rerun()
 
-            if st.session_state.get("editar_id") == ev["id"]:
-                resultado = ui.form_edicao_status(ev["id"], ev["status"], key_prefix="ev_")
-                if resultado:
-                    novo_status, comentario, responsavel = resultado
-                    try:
-                        ok = db.atualizar_status(
-                            ev["id"], novo_status,
-                            comentario=comentario, responsavel=responsavel,
-                        )
-                        if ok:
-                            st.success(f"Status #{ev['id']} → {novo_status}")
-                            st.session_state["editar_id"] = None
-                            st.rerun()
-                        else:
-                            st.error("Evento não encontrado no banco.")
-                    except Exception as exc:
-                        st.error(f"Erro ao atualizar: {exc}")
+            st.markdown('<div style="height:4px;"></div>', unsafe_allow_html=True)
+            _na_b1, _na_b2 = st.columns([4, 1])
+            with _na_b1:
+                _na_analisar = st.button(
+                    "Analisar", type="primary",
+                    width="stretch", key="na_btn_analisar",
+                )
+            with _na_b2:
+                if st.button("Limpar", width="stretch", key="na_btn_limpar"):
+                    for k in ["na_json_prefill_manual", "na_resultado"]:
+                        st.session_state.pop(k, None)
+                    st.rerun()
 
-            st.markdown(
-                f'<div style="border-bottom:1px solid {ui.BORDER};'
-                f'margin:4px 0 6px 0;"></div>',
-                unsafe_allow_html=True,
-            )
+            # Análise manual via botão
+            if _na_analisar and _na_json.strip():
+                st.session_state["na_payload_analisar"] = _na_json
+                st.rerun()
+            elif _na_analisar:
+                st.warning("Cole ou envie um JSON de sensor para analisar.")
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Aba 3 — Pendências
+
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_pend:
     ui.section("Pendências abertas")
@@ -585,14 +851,12 @@ with tab_pend:
                 f'</div>',
                 unsafe_allow_html=True,
             )
-
         for p in pendencias:
-            freq = p.get("frequency_per_week", 0.0)
+            freq      = p.get("frequency_per_week", 0.0)
             doc_color = ui.ACCENT if p.get("documented") else ui.DANGER
-            doc_flag = "COM manual" if p.get("documented") else "SEM manual"
-            ts_str = (p.get("ts") or "")[:10]
-            _def_fmt = _fmt_defeito(p["defeito"])
-
+            doc_flag  = "COM manual" if p.get("documented") else "SEM manual"
+            ts_str    = (p.get("ts") or "")[:10]
+            _def_fmt  = _fmt_defeito(p["defeito"])
             st.markdown(
                 f'<div class="mp-card" style="border-left:3px solid {ui.DANGER};">'
                 f'<div style="display:flex;align-items:center;gap:10px;">'
@@ -609,49 +873,155 @@ with tab_pend:
                 unsafe_allow_html=True,
             )
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Aba 3 — Resolvidos (timeline + slicer)
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_resolvidos:
+    # ── Slicer ───────────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;padding:16px 0 8px 0;">'
+        f'<div style="font-size:18px;font-weight:700;color:{ui.TEXT};flex:1;">'
+        f'Linha do Tempo</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    _res_ini, _res_fim = _period_slicer("res")
+
+    # ── Timeline chart ────────────────────────────────────────────────────────
+    try:
+        from datetime import datetime as _dt
+        _dias_res = max(1, (_dt.fromisoformat(_res_fim) - _dt.fromisoformat(_res_ini)).days)
+        serie_res = db.serie_temporal_resolvidos(dias=_dias_res + 1)
+
+        if serie_res:
+            # filtrar pelo período selecionado
+            serie_res = [r for r in serie_res if _res_ini <= r["dia"] <= _res_fim]
+
+        if serie_res:
+            df_res = pd.DataFrame(serie_res)
+            fig_res = px.line(
+                df_res, x="dia", y=["resolvidos", "abertos"],
+                color_discrete_map={"resolvidos": ui.ACCENT, "abertos": ui.DANGER},
+                labels={"value": "Eventos", "dia": "Data", "variable": "Status"},
+            )
+            fig_res.update_layout(
+                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.BG,
+                font=dict(color=ui.TEXT_MUTED, size=11),
+                height=420,
+                margin=dict(l=8, r=8, t=20, b=40),
+                legend=dict(
+                    bgcolor=ui.CARD_BG, bordercolor=ui.BORDER, borderwidth=1,
+                    orientation="h", x=0.5, y=-0.08,
+                    xanchor="center", yanchor="top", font=dict(size=11),
+                ),
+                xaxis=dict(showgrid=False, tickfont=dict(size=10)),
+                yaxis=dict(gridcolor=ui.BORDER, showgrid=True,
+                           title="Eventos", tickfont=dict(size=10)),
+            )
+            fig_res.update_traces(line=dict(width=2))
+            st.plotly_chart(fig_res, width="stretch")
+
+            # ── KPIs do período ───────────────────────────────────────────────
+            _tot_ab = sum(r["abertos"] for r in serie_res)
+            _tot_res = sum(r["resolvidos"] for r in serie_res)
+            _res_pct = round(_tot_res / (_tot_ab + _tot_res) * 100) if (_tot_ab + _tot_res) else 0
+            _ks = [
+                ("Abertos no período",   str(_tot_ab),  ui.DANGER),
+                ("Resolvidos",            str(_tot_res), ui.ACCENT),
+                ("Taxa de resolução",    f"{_res_pct}%", ui.ACCENT if _res_pct >= 60 else ui.WARN),
+                ("Dias analisados",       str(len(serie_res)), ui.TEXT_MUTED),
+            ]
+            _kst_html = ""
+            for _ki2, (_kl2, _kv2, _kc2) in enumerate(_ks):
+                _kbl2 = f"border-left:1px solid {ui.BORDER};" if _ki2 > 0 else ""
+                _kst_html += (
+                    f'<div style="flex:1;padding:0 20px;{_kbl2};text-align:center;">'
+                    f'<div style="font-size:9px;letter-spacing:0.7px;text-transform:uppercase;'
+                    f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:6px;">{_kl2}</div>'
+                    f'<div style="font-size:26px;font-weight:800;color:{_kc2};'
+                    f'font-variant-numeric:tabular-nums;">{_kv2}</div>'
+                    f'</div>'
+                )
+            st.markdown(
+                f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+                f'border-radius:12px;padding:16px 4px;margin-top:16px;'
+                f'display:flex;align-items:center;">' + _kst_html + '</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info(f"Sem dados de série temporal para o período {_res_ini} → {_res_fim}.")
+    except Exception as exc:
+        st.error(f"Erro na série temporal: {exc}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Aba 4 — Análise
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_analise:
-    ui.section("Distribuição por semáforo")
+    ui.section("Distribuição por Criticidade")
     try:
         resumo_an = db.resumo_semaforo()
-        df_sem = pd.DataFrame([
-            {"Semáforo": "🔴 Crítico", "Qtd": resumo_an["vermelho"]},
-            {"Semáforo": "🟡 Atenção",  "Qtd": resumo_an["amarelo"]},
-            {"Semáforo": "🟢 OK",       "Qtd": resumo_an["verde"]},
+        df_crit = pd.DataFrame([
+            {"Criticidade": "Crítico",  "Qtd": resumo_an["vermelho"]},
+            {"Criticidade": "Atenção",  "Qtd": resumo_an["amarelo"]},
+            {"Criticidade": "Normal",   "Qtd": resumo_an["verde"]},
         ])
         _color_disc = {
-            "🔴 Crítico": ui.DANGER,
-            "🟡 Atenção":  ui.WARN,
-            "🟢 OK":       ui.ACCENT,
+            "Crítico": ui.DANGER,
+            "Atenção": ui.WARN,
+            "Normal":  ui.ACCENT,
         }
 
         col_bar, col_pie = st.columns(2)
         with col_bar:
             fig_bar = px.bar(
-                df_sem, x="Semáforo", y="Qtd", color="Semáforo",
-                color_discrete_map=_color_disc, title="Eventos por semáforo",
+                df_crit, x="Criticidade", y="Qtd", color="Criticidade",
+                color_discrete_map=_color_disc,
+                title="Eventos por nível de criticidade",
             )
             fig_bar.update_layout(
                 paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.BG,
                 font=dict(color=ui.TEXT), showlegend=False,
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
 
         with col_pie:
             fig_pie = px.pie(
-                df_sem, names="Semáforo", values="Qtd",
-                color="Semáforo", color_discrete_map=_color_disc,
-                title="Proporção por semáforo",
+                df_crit, names="Criticidade", values="Qtd",
+                color="Criticidade", color_discrete_map=_color_disc,
+                title="Proporção por criticidade",
             )
             fig_pie.update_layout(
                 paper_bgcolor=ui.CARD_BG, font=dict(color=ui.TEXT)
             )
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
+
+        # ── Eventos abertos por criticidade ───────────────────────────────────
+        ui.section("Eventos críticos / atenção abertos")
+        abertos_an = resumo_an.get("abertos", [])
+        if abertos_an:
+            for ev in abertos_an:
+                crit_color = ui.DANGER if ev["semaforo"] == "🔴" else ui.WARN
+                _crit_label = "CRÍTICO" if ev["semaforo"] == "🔴" else "ATENÇÃO"
+                _def_fmt = _fmt_defeito(ev["defeito"])
+                st.markdown(
+                    f'<div class="mp-card" style="border-left:3px solid {crit_color};">'
+                    f'<b style="color:{ui.TEXT};">#{ev["id"]} — {_def_fmt}</b>'
+                    f'&nbsp;<span class="mp-badge" style="background:rgba(255,107,122,0.12);'
+                    f'color:{crit_color};border:1px solid {crit_color}55;">'
+                    f'{_crit_label}</span>&nbsp;'
+                    f'<span style="color:{ui.TEXT_MUTED};font-size:12px;">'
+                    f'{ev["frequency_per_week"]:.1f}/sem'
+                    f' · {"COM" if ev["documented"] else "SEM"} manual'
+                    f'</span></div>',
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.success("Nenhum evento crítico aberto.")
 
     except Exception as exc:
-        st.error(f"Erro nos gráficos de semáforo: {exc}")
+        st.error(f"Erro nos gráficos: {exc}")
 
     ui.section("Cobertura documental por defeito")
     try:
@@ -671,13 +1041,13 @@ with tab_analise:
             st.dataframe(
                 df_cov_grp[["Defeito PT", "Técnico", "Cobertura", "Ocorrências"]]
                 .sort_values("Ocorrências", ascending=False),
-                use_container_width=True,
-                hide_index=True,
+                width="stretch", hide_index=True,
             )
         else:
             st.info("Sem dados para análise de cobertura.")
     except Exception as exc:
         st.error(f"Erro na tabela de cobertura: {exc}")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Aba 5 — Chat
@@ -720,9 +1090,9 @@ with tab_chat:
         )
         for item in reversed(st.session_state["chat_history"]):
             _fontes_str = item.get("fonte", "banco")
-            _docs = item.get("sources", [])
+            _docs       = item.get("sources", [])
             _fonte_color = ui.ACCENT if "LLM" in _fontes_str else ui.INFO
-            _docs_html = (
+            _docs_html  = (
                 f' · <span style="color:{ui.TEXT_DIM};">📄 {", ".join(_docs)}</span>'
                 if _docs else ""
             )
@@ -743,5 +1113,116 @@ with tab_chat:
         st.markdown(
             f'<div style="color:{ui.TEXT_MUTED};font-size:13px;margin-top:20px;">'
             f'Faça uma pergunta sobre defeitos, pendências ou status do parque.</div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Aba 6 — Relatório IA
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_relatorio:
+    # ── Header + Botão na mesma linha ────────────────────────────────────────
+    _rh_col, _rg_col = st.columns([4, 1])
+    with _rh_col:
+        st.markdown(
+            f'<div style="padding:18px 0 4px 0;">'
+            f'<div style="font-size:20px;font-weight:700;color:{ui.TEXT};">'
+            f'Relatório IA</div>'
+            f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-top:4px;">'
+            f'A IA analisa todos os eventos do período selecionado e gera um '
+            f'relatório executivo de manutenção</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    with _rg_col:
+        st.markdown('<div style="padding-top:20px;"></div>', unsafe_allow_html=True)
+        gerar_btn = st.button(
+            "Gerar Relatório →", type="primary", width="stretch", key="btn_gerar_rel",
+        )
+
+    # ── Slicer ───────────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="font-size:10px;letter-spacing:0.7px;text-transform:uppercase;'
+        f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:8px;">Período de análise</div>',
+        unsafe_allow_html=True,
+    )
+    _rep_ini, _rep_fim = _period_slicer("rep")
+
+    st.markdown(
+        f'<div style="border-bottom:1px solid {ui.BORDER};margin:12px 0 16px 0;"></div>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Geração ──────────────────────────────────────────────────────────────
+    if gerar_btn:
+        st.session_state.pop("relatorio_resultado", None)
+        with st.spinner(f"Analisando eventos de {_rep_ini} a {_rep_fim} · consultando IA..."):
+            try:
+                _rel = gerar_relatorio_ia(_rep_ini, _rep_fim)
+                st.session_state["relatorio_resultado"] = _rel
+            except Exception as exc:
+                st.session_state["relatorio_resultado"] = {
+                    "ok": False, "erro": str(exc), "stats": {}
+                }
+
+    # ── Resultado ─────────────────────────────────────────────────────────────
+    if "relatorio_resultado" in st.session_state:
+        _rel = st.session_state["relatorio_resultado"]
+        _stats = _rel.get("stats", {})
+
+        # KPIs do período
+        if _stats.get("total", 0) > 0:
+            _skpis = [
+                ("Eventos",       str(_stats.get("total", 0)),     ui.TEXT),
+                ("Críticos",      str(_stats.get("criticos", 0)),  ui.DANGER),
+                ("Atenção",       str(_stats.get("atencao", 0)),   ui.WARN),
+                ("Pendentes",     str(_stats.get("pendentes", 0)), ui.DANGER if _stats.get("pendentes", 0) > 0 else ui.ACCENT),
+                ("Resolvidos",    str(_stats.get("resolvidos", 0)), ui.ACCENT),
+                ("Sem doc",       str(_stats.get("sem_doc", 0)),   ui.DANGER if _stats.get("sem_doc", 0) > 0 else ui.ACCENT),
+            ]
+            _sk_html = ""
+            for _si, (_sl, _sv, _sc) in enumerate(_skpis):
+                _sbl = f"border-left:1px solid {ui.BORDER};" if _si > 0 else ""
+                _sk_html += (
+                    f'<div style="flex:1;padding:0 16px;{_sbl};text-align:center;">'
+                    f'<div style="font-size:9px;letter-spacing:0.7px;text-transform:uppercase;'
+                    f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:5px;">{_sl}</div>'
+                    f'<div style="font-size:22px;font-weight:800;color:{_sc};'
+                    f'font-variant-numeric:tabular-nums;">{_sv}</div>'
+                    f'</div>'
+                )
+            st.markdown(
+                f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+                f'border-top:2px solid {ui.ACCENT};border-radius:12px;'
+                f'padding:14px 4px;margin-bottom:20px;'
+                f'display:flex;align-items:center;">' + _sk_html + '</div>',
+                unsafe_allow_html=True,
+            )
+
+        if _rel.get("ok"):
+            st.markdown(
+                f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+                f'border-radius:14px;padding:24px 28px;">'
+                f'<div style="font-size:10px;letter-spacing:0.7px;text-transform:uppercase;'
+                f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:16px;">'
+                f'Relatório gerado pela IA — {_rep_ini} a {_rep_fim}</div>',
+                unsafe_allow_html=True,
+            )
+            st.markdown(_rel["relatorio"])
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.error(f"Erro ao gerar relatório: {_rel.get('erro', '?')}")
+            if _stats.get("total", 0) == 0:
+                st.info("Nenhum evento encontrado no período. Tente um intervalo maior.")
+    else:
+        st.markdown(
+            f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+            f'border-radius:14px;padding:48px 24px;text-align:center;">'
+            f'<div style="font-size:32px;margin-bottom:12px;">📋</div>'
+            f'<div style="font-size:15px;font-weight:600;color:{ui.TEXT};margin-bottom:6px;">'
+            f'Nenhum relatório gerado</div>'
+            f'<div style="font-size:13px;color:{ui.TEXT_MUTED};">'
+            f'Selecione o período e clique em <b>Gerar Relatório →</b></div>'
+            f'</div>',
             unsafe_allow_html=True,
         )

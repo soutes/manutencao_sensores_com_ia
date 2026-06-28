@@ -28,9 +28,104 @@ class PrescriptionResult:
     documented: bool
     instructions: str
     sources: list[str] = field(default_factory=list)
+    # Avaliador de Retrieval — qualidade dos chunks antes do LLM
+    retrieval_score: float = 0.0
+    retrieval_nota: str = "N/A"
+    retrieval_parecer: str = ""
+    retrieval_ok: bool = True
+    # Avaliador de Alucinação — resposta ancorada no contexto?
+    hallucination_score: float = 0.0
+    hallucination_nota: str = "N/A"
+    hallucination_parecer: str = ""
+    hallucination_ok: bool = True
 
 
 _RAG_PATH = ARTIFACTS_DIR / "rag.joblib"
+
+
+def _docs_fingerprint(docs_dir: Path = DOCS_DIR) -> str:
+    """Gera fingerprint dos PDFs para detectar mudanças.
+
+    Combina nomes + tamanhos + datas de modificação dos arquivos.
+    Se qualquer PDF mudar (novo, editado, removido), o fingerprint muda
+    e o índice é rebuildado automaticamente.
+    """
+    import hashlib, os
+    h = hashlib.md5()
+    for pdf in sorted(Path(docs_dir).glob("Doc*.pdf")):
+        stat = os.stat(pdf)
+        h.update(f"{pdf.name}:{stat.st_size}:{stat.st_mtime:.0f}".encode())
+    return h.hexdigest()
+
+
+def _ensure_rag_index(docs_dir: Path = DOCS_DIR) -> None:
+    """Verifica se o índice RAG está atualizado. Se não, rebuilda.
+
+    Detecta automaticamente:
+    - PDFs novos adicionados
+    - PDFs modificados
+    - PDFs removidos
+    """
+    current_fp = _docs_fingerprint(docs_dir)
+
+    # Carrega fingerprint salvo (se existe)
+    saved_fp = None
+    if _RAG_PATH.exists():
+        try:
+            d = joblib.load(_RAG_PATH)
+            saved_fp = d.get("fingerprint")
+        except Exception:
+            pass
+
+    if saved_fp != current_fp:
+        print(f"[RAG] Fingerprint mudou — rebuildando índice...")
+        build_doc_index(docs_dir)
+        # Salva o fingerprint no índice
+        d = joblib.load(_RAG_PATH)
+        d["fingerprint"] = current_fp
+        joblib.dump(d, _RAG_PATH)
+        print(f"[RAG] Índice reconstruído com sucesso.")
+
+
+# ─── avaliadores (professor) ──────────────────────────────────────────────────
+
+def _grade_retrieval(score: float) -> dict:
+    """Professor que avalia qualidade da busca ANTES de chamar o LLM.
+
+    Nota F bloqueia a chamada ao LLM — sem contexto relevante não há prescrição.
+    """
+    if score >= 0.30:
+        return {"nota": "A", "parecer": "Excelente — contexto altamente relevante para a query", "ok": True}
+    if score >= 0.15:
+        return {"nota": "B", "parecer": "Bom — contexto relevante recuperado", "ok": True}
+    if score >= 0.05:
+        return {"nota": "C", "parecer": "Satisfatório — contexto parcialmente relacionado", "ok": True}
+    return {"nota": "F", "parecer": "Insuficiente — chunks recuperados não relacionados à query", "ok": False}
+
+
+def _grade_hallucination(response: str, context: str) -> dict:
+    """Professor que verifica se resposta do LLM está ancorada no contexto.
+
+    Usa TF-IDF cosine similarity entre resposta e contexto recuperado.
+    Score baixo = LLM extrapolou ou inventou além do documento.
+    """
+    if not context.strip() or not response.strip():
+        return {"score": 0.0, "nota": "N/A", "parecer": "Sem contexto ou resposta para avaliar", "ok": True}
+    try:
+        from sklearn.metrics.pairwise import cosine_similarity as _cos
+        d = joblib.load(_RAG_PATH)
+        vecs = d["vectorizer"].transform([response, context])
+        score = float(_cos(vecs[0:1], vecs[1:2])[0][0])
+    except Exception:
+        return {"score": 0.0, "nota": "N/A", "parecer": "Avaliação indisponível (índice não carregado)", "ok": True}
+
+    if score >= 0.25:
+        return {"score": score, "nota": "A", "parecer": "Aprovado — resposta bem ancorada no documento", "ok": True}
+    if score >= 0.12:
+        return {"score": score, "nota": "B", "parecer": "Bom — resposta majoritariamente ancorada", "ok": True}
+    if score >= 0.05:
+        return {"score": score, "nota": "C", "parecer": "Atenção — possível extrapolação do contexto", "ok": False}
+    return {"score": score, "nota": "F", "parecer": "Reprovado — resposta possivelmente alucinada (baixa cobertura)", "ok": False}
 
 
 def _chunk(text: str, size: int = 800, overlap: int = 150) -> list[str]:
@@ -64,21 +159,24 @@ def build_doc_index(docs_dir: Path = DOCS_DIR) -> None:
 
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump({"vectorizer": vectorizer, "matrix": matrix,
-                 "chunks": chunks, "metas": metas}, _RAG_PATH)
+                 "chunks": chunks, "metas": metas,
+                 "fingerprint": _docs_fingerprint(docs_dir)}, _RAG_PATH)
     print(f"  RAG salvo: {len(chunks)} chunks, {matrix.shape[1]} termos")
 
 
-def _retrieve(doc_name: str, query: str, top_k: int = 4) -> list[str]:
+def _retrieve(doc_name: str, query: str, top_k: int = 4) -> tuple[list[str], float]:
+    """Retorna (chunks, max_score). max_score alimenta o avaliador de retrieval."""
     from sklearn.metrics.pairwise import cosine_similarity
     d = joblib.load(_RAG_PATH)
     idx = [i for i, m in enumerate(d["metas"]) if m == doc_name]
     if not idx:
-        return []
+        return [], 0.0
     sub = d["matrix"][idx]
     qv = d["vectorizer"].transform([query])
     sims = cosine_similarity(qv, sub)[0]
     order = sims.argsort()[::-1][:top_k]
-    return [d["chunks"][idx[i]] for i in order]
+    max_score = float(sims[order[0]]) if len(order) > 0 else 0.0
+    return [d["chunks"][idx[i]] for i in order], max_score
 
 
 def search_all(query: str, top_k: int = 5,
@@ -110,20 +208,64 @@ _SYSTEM = (
 )
 
 
+_QUERY_ENRIQUECIDA: dict[str, str] = {
+    "rolamento":               "rolamento defeito manutenção inspeção substituição lubrificação",
+    "rolamento_inner":         "rolamento pista interna defeito manutenção inspeção substituição lubrificação",
+    "rolamento_outer":         "rolamento pista externa defeito manutenção inspeção substituição lubrificação",
+    "rolamento_ball":          "rolamento esfera rolante defeito manutenção inspeção substituição lubrificação",
+    "rolamento_combination":   "rolamento combinado defeito manutenção inspeção substituição lubrificação",
+    "desalinhado":             "desalinhamento alinhamento angular paralelo acoplamento manutenção correção",
+    "desbalanceado":           "desbalanceamento roda balanceamento estático dinâmico vibração manutenção",
+    "correia":                 "correia transmissão desgaste substituição tensão polia manutenção",
+    "polia":                   "polia roda dentada desgaste substituição alinhamento manutenção",
+    "cocked_rotor":            "rotor inclinado desalinhamento angular manutenção correção",
+    "eccentric_rotor":         "rotor excêntrico desbalanceamento vibração manutenção",
+    "ventoinha":               "ventoinha cooling fan defeito vibração manutenção substituição",
+    "falta_fase":              "falta fase elétrico motor manutenção inspeção elétrica",
+}
+
+
 def prescribe(canonical_fault: str, question: str | None = None) -> PrescriptionResult:
+    # Auto-rebuild: detecta PDFs novos/modificados/removidos
+    _ensure_rag_index()
+
     doc = FAULT_DOC_MAP.get(canonical_fault)
     if doc is None:  # sem documento (ou defeito desconhecido) -> gating
         return PrescriptionResult(
             canonical_fault=canonical_fault, documented=False, sources=[],
+            retrieval_ok=False, retrieval_nota="F",
+            retrieval_parecer="Sem documento cadastrado para este defeito",
+            hallucination_ok=True, hallucination_nota="N/A",
+            hallucination_parecer="Gating ativo — LLM não foi chamado",
             instructions=(f"Nao ha procedimento documentado para o defeito "
                           f"'{canonical_fault}'. Registre um novo documento "
                           f"descrevendo a correcao deste defeito para habilitar "
                           f"a prescricao."),
         )
 
-    query = question or f"como corrigir o defeito {canonical_fault}"
-    context_chunks = _retrieve(doc, query)
+    # Query enriquecida com termos técnicos relevantes para melhorar matching TF-IDF
+    query = question or _QUERY_ENRIQUECIDA.get(
+        canonical_fault,
+        f"como corrigir o defeito {canonical_fault}"
+    )
+    context_chunks, max_score = _retrieve(doc, query)
     context = "\n\n".join(context_chunks)
+
+    # ── Avaliador 1: Retrieval ──────────────────────────────────────────────
+    ret = _grade_retrieval(max_score)
+
+    if not ret["ok"]:
+        # Retrieval reprovado: não aciona LLM, retorna falha explicada
+        return PrescriptionResult(
+            canonical_fault=canonical_fault, documented=True, sources=[doc],
+            retrieval_score=max_score, retrieval_nota=ret["nota"],
+            retrieval_parecer=ret["parecer"], retrieval_ok=False,
+            hallucination_nota="N/A",
+            hallucination_parecer="Retrieval reprovado — LLM não acionado",
+            hallucination_ok=True,
+            instructions=(f"[Retrieval insuficiente — nota {ret['nota']}] "
+                          f"{ret['parecer']}. Nenhuma prescrição gerada."),
+        )
 
     prompt = (f"CONTEXTO (procedimento {doc}):\n{context}\n\n"
               f"PERGUNTA: {query}\n\n"
@@ -134,6 +276,24 @@ def prescribe(canonical_fault: str, question: str | None = None) -> Prescription
     except Exception as e:  # noqa: BLE001 -- LLM (Ollama) pode estar off
         answer = ("[LLM indisponivel - exibindo trechos do procedimento]\n\n"
                   + context + f"\n\n(erro LLM: {e})")
+        return PrescriptionResult(
+            canonical_fault=canonical_fault, documented=True, sources=[doc],
+            retrieval_score=max_score, retrieval_nota=ret["nota"],
+            retrieval_parecer=ret["parecer"], retrieval_ok=True,
+            hallucination_nota="N/A",
+            hallucination_parecer="LLM offline — avaliação de alucinação ignorada",
+            hallucination_ok=True,
+            instructions=answer,
+        )
 
-    return PrescriptionResult(canonical_fault=canonical_fault, documented=True,
-                              instructions=answer, sources=[doc])
+    # ── Avaliador 2: Alucinação ─────────────────────────────────────────────
+    hal = _grade_hallucination(answer, context)
+
+    return PrescriptionResult(
+        canonical_fault=canonical_fault, documented=True, sources=[doc],
+        retrieval_score=max_score, retrieval_nota=ret["nota"],
+        retrieval_parecer=ret["parecer"], retrieval_ok=True,
+        hallucination_score=hal["score"], hallucination_nota=hal["nota"],
+        hallucination_parecer=hal["parecer"], hallucination_ok=hal["ok"],
+        instructions=answer,
+    )
