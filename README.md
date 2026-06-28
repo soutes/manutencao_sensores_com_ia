@@ -150,7 +150,7 @@ Isso resolve o problema de **classes com poucos registros** (ex: `acelerando` co
 ### Opção 1: Docker (recomendado)
 
 ```bash
-git clone https://github.com/seu-usuario/fiesc-manutencao-prescritiva
+https://github.com/soutes/manutencao_sensores_com_ia
 cd fiesc-manutencao-prescritiva
 cp .env.example .env
 docker compose up
