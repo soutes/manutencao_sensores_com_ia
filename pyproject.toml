@@ -13,6 +13,7 @@ python = "^3.14"
 pandas = "*"
 numpy = "*"
 scikit-learn = "*"
+xgboost = "*"
 joblib = "*"
 pyarrow = "*"
 
@@ -43,7 +44,8 @@ pytest = "*"
 pytest-asyncio = "*"
 httpx = "*"            # TestClient do FastAPI
 ipykernel = "*"
-jupyterlab = "*"
+matplotlib = "*"
+seaborn = "*"
 
 [tool.poetry.scripts]
 api = "src.api.main:start"

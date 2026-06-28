@@ -51,7 +51,7 @@ jupyterlab = "*"
 poetry install              # instala main + dev (desenvolvimento)
 poetry install --only main  # só produção (Docker)
 poetry run uvicorn ...      # roda sem ativar venv manualmente
-poetry export -f requirements.txt --without-hashes > requirements.txt  # HF Spaces
+poetry export -f requirements.txt --without-hashes > requirements.txt  # ambientes só-pip
 poetry add <pacote>         # adiciona e atualiza lock
 ```
 
@@ -91,8 +91,8 @@ bot   = "src.bot.telegram_bot:start"
 **Negativas / Trade-offs:**
 - `poetry install` é mais lento que `pip install` em primeira execução
   — mitigado por cache de layer Docker e `$POETRY_CACHE_DIR`
-- HF Spaces não lê `pyproject.toml` nativo em todos os runtimes
-  — resolver com `poetry export > requirements.txt` no CI ou manualmente antes do push
+- Alguns ambientes que só leem `requirements.txt` não consomem `pyproject.toml` nativo
+  — resolver com `poetry export > requirements.txt` quando necessário
 - Python 3.14 pode ter wheels faltando para alguns pacotes
   — Poetry resolve com fallback para sdist; stack leve (ADR-001) minimiza risco
 

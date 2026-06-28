@@ -1,4 +1,4 @@
-# ADR-006 — Containerização Docker + Deploy (On-Prem e HF Spaces)
+# ADR-006 — Containerização Docker (Deploy On-Prem)
 
 **Status:** Aceita
 **Data:** 2026-06-26
@@ -8,12 +8,17 @@
 
 ## Contexto
 
-O sistema tem dois alvos de deploy: (1) ambiente industrial on-premises e (2) demo pública
-para a banca avaliadora sem instalação local. Ambos exigem ambiente Python reproduzível
-com dependências de sistema (tesseract, poppler para OCR/PDF).
+O alvo de deploy é o ambiente industrial **on-premises**, que exige um ambiente Python
+reproduzível que qualquer avaliador ou operador consiga subir sem configurar a máquina
+manualmente.
 
-Dependências Python são gerenciadas via Poetry (ADR-007). O Dockerfile precisa instalar
-deps de sistema + deps Python de forma determinística e reproduzível.
+Dependências Python são gerenciadas via Poetry (ADR-007). O Dockerfile instala as deps
+Python de forma determinística e reproduzível.
+
+> **Caminho de OCR adotado:** o projeto seguiu para **PyMuPDF (render) + RapidOCR
+> (onnxruntime)** — OCR 100% em Python, **sem binário de sistema**. Logo, `tesseract`
+> e `poppler` **não são necessários**; os `apt-get install` desses pacotes ainda
+> presentes no Dockerfile são legado e podem ser removidos para enxugar a imagem.
 
 ---
 
@@ -69,11 +74,9 @@ services:
     depends_on: [api]
 ```
 
-### Deploy cloud: Hugging Face Spaces (Streamlit SDK)
+### Persistência entre execuções
 
-- Perfil cloud: `LLM_PROVIDER=openrouter`, `DATABASE_URL` Supabase
-- HF Spaces suporta `pyproject.toml` via Poetry nativo ou `requirements.txt` exportado
-  (`poetry export -f requirements.txt --without-hashes > requirements.txt`)
+Volume `./data` no host preserva o banco SQLite entre restarts do contêiner on-prem.
 
 ---
 
@@ -94,23 +97,7 @@ services:
 |---|---|
 | Sem lockfile determinístico | `pip install -r requirements.txt` não garante sub-deps iguais |
 | Sem grupos dev/prod | Instala ferramentas de test em produção |
-| Poetry export resolve | `poetry export` gera requirements.txt para HF Spaces se necessário |
-
-### Render / Railway
-
-| Razão | Detalhe |
-|---|---|
-| Viável tecnicamente | Suportam Docker + Poetry |
-| Menos visível | HF Spaces tem descoberta orgânica para projetos de ML |
-
-### HF Spaces (escolhido para demo)
-
-| Vantagem | Detalhe |
-|---|---|
-| Streamlit nativo | SDK Streamlit suportado de fábrica |
-| Gratuito | Tier CPU gratuito suficiente com OpenRouter |
-| Visibilidade | Comunidade ML; link público profissional |
-| Secrets | Chaves via interface HF (não ficam no repo) |
+| Poetry export resolve | `poetry export` gera requirements.txt se necessário |
 
 ---
 
@@ -123,7 +110,5 @@ services:
 - Mesmo Dockerfile para on-prem e (se necessário) cloud — só muda env vars
 
 **Negativas / Trade-offs:**
-- HF Spaces gratuito reinicia contêiner → banco SQLite perdido; usar Supabase para persistência
-- HF Spaces não roda Ollama → demo usa OpenRouter (aceito: dados sintéticos)
 - `poetry install` na build pode ser lento na primeira vez; mitigado por cache de layer Docker
   (copiar `pyproject.toml` + `poetry.lock` antes do `COPY . .`)

@@ -266,3 +266,68 @@ def responder_duvida(texto: str, origem: str = "api") -> dict:
         "fonte": fonte,
         "sources": fontes,
     }
+
+
+def gerar_relatorio_ia(inicio: str, fim: str) -> dict:
+    """Relatório executivo de manutenção para o período via LLM.
+
+    `inicio`/`fim` = 'YYYY-MM-DD'. Retorna {ok, relatorio|erro, stats}.
+    """
+    from collections import Counter
+    from . import db as _db
+    from .faults import label_pt as _lpt
+    from .llm import llm_generate, LLMError
+
+    eventos   = _db.listar_eventos_periodo(inicio, fim)
+    total     = len(eventos)
+
+    if total == 0:
+        return {"ok": False, "erro": "Nenhum evento no período selecionado.",
+                "stats": {"total": 0}}
+
+    problemas  = [e for e in eventos if e.get("is_problem")]
+    criticos   = [e for e in eventos if e.get("semaforo") == "🔴"]
+    atencao_ev = [e for e in eventos if e.get("semaforo") == "🟡"]
+    ok_ev      = [e for e in eventos if e.get("semaforo") == "🟢"]
+    pendentes  = [e for e in eventos if e.get("status") == "pendente"]
+    resolvidos = [e for e in eventos if e.get("status") in ("ok", "resolvido")]
+    sem_doc    = [e for e in problemas if not e.get("documented")]
+
+    top     = Counter(e["defeito"] for e in problemas).most_common(5)
+    top_str = "\n".join(
+        f"  - {_lpt(d)}: {c} ocorrência{'s' if c > 1 else ''}" for d, c in top
+    ) or "  (nenhum defeito registrado)"
+
+    pct = round(len(problemas) / total * 100) if total else 0
+
+    prompt = (
+        f"Você é engenheiro sênior de manutenção preditiva industrial.\n"
+        f"Gere um relatório executivo em PT-BR, estruturado e conciso (máx. 400 palavras).\n\n"
+        f"DADOS DO PERÍODO: {inicio} a {fim}\n"
+        f"- Total de eventos analisados: {total}\n"
+        f"- Defeitos detectados: {len(problemas)} ({pct}%)\n"
+        f"- Criticidade: {len(criticos)} críticos (🔴) · {len(atencao_ev)} atenção (🟡)"
+        f" · {len(ok_ev)} normais (🟢)\n"
+        f"- Pendentes sem resolução: {len(pendentes)}\n"
+        f"- Resolvidos: {len(resolvidos)}\n"
+        f"- Sem documentação técnica: {len(sem_doc)}\n\n"
+        f"Top defeitos:\n{top_str}\n\n"
+        f"ESTRUTURA (use markdown com negrito):\n"
+        f"1. **Resumo Executivo** — situação geral em 2-3 frases\n"
+        f"2. **Pontos Críticos** — itens que requerem ação imediata\n"
+        f"3. **Tendências** — padrões observados no período\n"
+        f"4. **Recomendações** — próximas ações priorizadas\n\n"
+        f"Seja direto, técnico e acionável. Use marcadores (-)."
+    )
+
+    stats = {
+        "total": total, "problemas": len(problemas),
+        "criticos": len(criticos), "atencao": len(atencao_ev),
+        "pendentes": len(pendentes), "resolvidos": len(resolvidos),
+        "sem_doc": len(sem_doc),
+    }
+    try:
+        texto = llm_generate(prompt)
+        return {"ok": True, "relatorio": texto, "stats": stats}
+    except LLMError as exc:
+        return {"ok": False, "erro": str(exc), "stats": stats}

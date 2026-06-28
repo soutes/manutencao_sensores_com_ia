@@ -1,9 +1,7 @@
 FROM python:3.14-slim
 
-# binarios p/ OCR do Doc1 (tesseract) e rasterizacao de PDF (poppler)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tesseract-ocr tesseract-ocr-por poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
+# OCR 100% Python (PyMuPDF render + RapidOCR-onnxruntime) — sem binario de sistema.
+# Nao requer tesseract/poppler.
 
 # Poetry sem virtualenv dentro do container (container ja e isolado)
 ENV POETRY_NO_INTERACTION=1 \

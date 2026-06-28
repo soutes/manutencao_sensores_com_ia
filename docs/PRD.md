@@ -49,7 +49,7 @@ dados sintéticos.
 | **Diferencial 1 — APIs** | FastAPI com rotas documentadas (Swagger) | Swagger acessível em /docs |
 | **Diferencial 2 — Banco** | Eventos, consultas e pendências persistidos | 3 tabelas, trocável por DATABASE_URL |
 | **Diferencial 3 — Dashboard** | Streamlit com histórico + pendências + KPIs | Roda sem erro, design system aplicado |
-| **Diferencial 4 — Deploy** | Docker on-prem + HF Spaces cloud | `docker compose up` funciona |
+| **Diferencial 4 — Deploy** | Containerização Docker on-prem | `docker compose up` funciona |
 | **Diferencial 5 — Integração industrial** | Telegram bot ingerindo JSON e respondendo Q&A | Bot responde em < 30s |
 | **Gating sem-doc** | Defeitos sem manual nunca recebem prescrição inventada | 100% dos casos eccentric/ventoinha/falta_fase retornam solicitação de registro |
 | **Anti-alucinação** | LLM usa só trechos recuperados; prompt bloqueia invenção | Review manual confirma 0 fatos fora do contexto |
@@ -98,7 +98,7 @@ dados sintéticos.
 - Persistência em banco (SQLite on-prem ↔ Supabase cloud)
 - Dashboard Streamlit multi-stakeholder: semáforo, KPIs, série temporal, edição de status
 - Telegram bot (ingestão JSON + Q&A de status do parque para operador/gerente/diretor)
-- Deploy Docker on-premises + HF Spaces (demo cloud)
+- Containerização Docker on-premises (`docker compose up`)
 - Notebook EDA com análise dos dados, métricas e insights
 
 ### Out-of-Scope
@@ -118,8 +118,8 @@ dados sintéticos.
 
 | ID | Requisito | Prioridade |
 |---|---|---|
-| RF-01 | Sistema recebe JSON de evento via `/api/evento` (POST) e retorna análise prescritiva | Must |
-| RF-02 | Sistema encontra k=5 casos históricos mais similares (KNN ponderado) | Must |
+| RF-01 | Sistema recebe JSON de evento via `/event` (POST) e retorna análise prescritiva | Must |
+| RF-02 | Sistema encontra k=50 casos históricos mais similares (KNN ponderado por distância) | Must |
 | RF-03 | Sistema recupera trecho do manual do defeito identificado via TF-IDF + cosseno | Must |
 | RF-04 | LLM redige prescrição restrita ao trecho recuperado | Must |
 | RF-05 | Se defeito sem manual: retorna mensagem de gating + registra em tabela `pendencias` | Must |
@@ -134,7 +134,6 @@ dados sintéticos.
 | RF-14 | Troca de banco via variável `DATABASE_URL` sem alterar código | Must |
 | RF-15 | Notebook EDA com gráficos de distribuição, métricas KNN, matriz de confusão | Should |
 | RF-16 | Deploy funcional via `docker compose up` | Must |
-| RF-17 | Deploy alternativo via HF Spaces (demo cloud) | Could |
 
 ### 5.2 Não-Funcionais
 
@@ -169,7 +168,6 @@ Ver arquivos individuais em `docs/user-stories/`.
 | US-008 | Operação cloud com OpenRouter (modo demo) | Sistema | Should |
 | US-009 | Notebook EDA com métricas e insights | Engenheiro | Should |
 | US-010 | Deploy Docker on-prem | Ops | Must |
-| US-011 | Deploy HF Spaces (demo cloud) | Ops | Could |
 | US-012 | Edição de status semáforo + comentário + auditoria → banco | Engenheiro, Técnico | Must |
 
 ---
@@ -191,9 +189,8 @@ Ver arquivos individuais em `docs/user-stories/`.
 
 ### Could — Diferencial extra se sobrar tempo
 
-8. **D3** — HF Spaces deploy
-9. **D4** — Diagrama de arquitetura (draw.io / mermaid)
-10. **D5** — Simulador MQTT/PLC no README
+8. **D4** — Diagrama de arquitetura (draw.io / mermaid)
+9. **D5** — Simulador MQTT/PLC no README
 
 ### Won't (neste ciclo)
 

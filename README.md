@@ -150,8 +150,8 @@ Isso resolve o problema de **classes com poucos registros** (ex: `acelerando` co
 ### Opção 1: Docker (recomendado)
 
 ```bash
-https://github.com/soutes/manutencao_sensores_com_ia
-cd fiesc-manutencao-prescritiva
+git clone https://github.com/soutes/manutencao_sensores_com_ia
+cd manutencao_sensores_com_ia
 cp .env.example .env
 docker compose up
 ```
@@ -226,9 +226,9 @@ src/
     backend.py          # responder_evento() + responder_duvida()
     db.py               # SQLAlchemy: Evento, Consulta, StatusHistorico
     pipeline.py         # process_event() end-to-end
-    doc_extract.py      # pdfplumber + OCR (tesseract)
+    doc_extract.py      # pdfplumber (texto) + OCR (PyMuPDF + RapidOCR-onnxruntime)
   app/
-    streamlit_app.py    # 7 abas: Overview|Análise|Pendências|Resolvidos|Análise|Chat|Relatório
+    streamlit_app.py    # 8 abas: Overview|Nova Análise|Pendências|Resolvidos|Análise|Chat|Relatório IA|Configuração IA
     ui.py               # design system dark (#10F5A3 accent)
   bot/
     telegram_bot.py     # multi-persona: JSON→semáforo, texto→Q&A
@@ -294,7 +294,7 @@ notebooks/
 | LLM | Ollama (local) ↔ OpenRouter (demo) | Interruptor LGPD |
 | Banco | SQLAlchemy (SQLite ↔ Postgres) | Trocável via DATABASE_URL |
 | API | FastAPI (porta 8000) | Swagger em /docs |
-| Dashboard | Streamlit (porta 8501) | 7 abas, dark theme |
+| Dashboard | Streamlit (porta 8501) | 8 abas, dark theme |
 | Bot | python-telegram-bot | Multi-persona com guardrails |
 | Deploy | Docker Compose | `docker compose up` sobe tudo |
 | Deps | Poetry 2.2.1 | Lockfile determinístico |

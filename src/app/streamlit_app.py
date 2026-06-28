@@ -909,66 +909,81 @@ with tab_resolvidos:
 # Aba 4 — Análise
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_analise:
-    ui.section("Distribuição por Criticidade")
+    ui.section("Período de análise")
+    _an_ini, _an_fim = _period_slicer("an")
     try:
-        resumo_an = db.resumo_semaforo()
-        df_crit = pd.DataFrame([
-            {"Criticidade": "Crítico",  "Qtd": resumo_an["vermelho"]},
-            {"Criticidade": "Atenção",  "Qtd": resumo_an["amarelo"]},
-            {"Criticidade": "Normal",   "Qtd": resumo_an["verde"]},
-        ])
-        _color_disc = {
-            "Crítico": ui.DANGER,
-            "Atenção": ui.WARN,
-            "Normal":  ui.ACCENT,
-        }
-
-        col_bar, col_pie = st.columns(2)
-        with col_bar:
-            fig_bar = px.bar(
-                df_crit, x="Criticidade", y="Qtd", color="Criticidade",
-                color_discrete_map=_color_disc,
-                title="Eventos por nível de criticidade",
-            )
-            fig_bar.update_layout(
-                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.CARD_BG,
-                font=dict(color=ui.TEXT_MUTED, size=11),
-                margin=dict(l=40, r=16, t=40, b=50),
-                showlegend=False,
-                xaxis=dict(title=None, tickfont=dict(size=11)),
-                yaxis=dict(title=None, gridcolor=ui.BORDER, tickfont=dict(size=10)),
-                bargap=0.3,
-            )
-            st.plotly_chart(fig_bar, width="stretch")
-
-        with col_pie:
-            fig_pie = px.pie(
-                df_crit, names="Criticidade", values="Qtd",
-                color="Criticidade", color_discrete_map=_color_disc,
-                title="Proporção por criticidade",
-            )
-            fig_pie.update_layout(
-                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.CARD_BG,
-                font=dict(color=ui.TEXT_MUTED, size=11),
-                margin=dict(l=16, r=16, t=40, b=16),
-                legend=dict(
-                    orientation="h", x=0.5, y=-0.1, xanchor="center",
-                    font=dict(size=11),
-                ),
-            )
-            fig_pie.update_traces(textinfo="label+percent", textposition="outside",
-                                  textfont=dict(size=10))
-            st.plotly_chart(fig_pie, width="stretch")
-
-
+        _an_all = db.listar_eventos(limit=500)
     except Exception as exc:
-        st.error(f"Erro nos gráficos: {exc}")
+        _an_all = []
+        st.error(f"Erro ao carregar eventos: {exc}")
 
-    ui.section("Cobertura documental por defeito")
-    try:
-        todos = db.listar_eventos(limit=500)
-        if todos:
-            df_cov = pd.DataFrame(todos)
+    # filtra pela data do evento (parte YYYY-MM-DD do ts)
+    _an_filt = [e for e in _an_all
+                if e.get("ts") and _an_ini <= e["ts"][:10] <= _an_fim]
+    st.caption(f"{len(_an_filt)} evento(s) entre {_an_ini} e {_an_fim}")
+
+    if not _an_filt:
+        st.info("Nenhum evento no período selecionado. Ajuste o filtro acima.")
+    else:
+        df_an = pd.DataFrame(_an_filt)
+
+        ui.section("Distribuição por Criticidade")
+        try:
+            _lbl = {"🔴": "Crítico", "🟡": "Atenção", "🟢": "Normal"}
+            _cnt = df_an["semaforo"].map(_lbl).value_counts()
+            df_crit = pd.DataFrame([
+                {"Criticidade": "Crítico", "Qtd": int(_cnt.get("Crítico", 0))},
+                {"Criticidade": "Atenção", "Qtd": int(_cnt.get("Atenção", 0))},
+                {"Criticidade": "Normal",  "Qtd": int(_cnt.get("Normal", 0))},
+            ])
+            _color_disc = {
+                "Crítico": ui.DANGER,
+                "Atenção": ui.WARN,
+                "Normal":  ui.ACCENT,
+            }
+
+            col_bar, col_pie = st.columns(2)
+            with col_bar:
+                fig_bar = px.bar(
+                    df_crit, x="Criticidade", y="Qtd", color="Criticidade",
+                    color_discrete_map=_color_disc,
+                    title="Eventos por nível de criticidade",
+                )
+                fig_bar.update_layout(
+                    paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.CARD_BG,
+                    font=dict(color=ui.TEXT_MUTED, size=11),
+                    margin=dict(l=40, r=16, t=40, b=50),
+                    showlegend=False,
+                    xaxis=dict(title=None, tickfont=dict(size=11)),
+                    yaxis=dict(title=None, gridcolor=ui.BORDER, tickfont=dict(size=10)),
+                    bargap=0.3,
+                )
+                st.plotly_chart(fig_bar, width="stretch")
+
+            with col_pie:
+                fig_pie = px.pie(
+                    df_crit, names="Criticidade", values="Qtd",
+                    color="Criticidade", color_discrete_map=_color_disc,
+                    title="Proporção por criticidade",
+                )
+                fig_pie.update_layout(
+                    paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.CARD_BG,
+                    font=dict(color=ui.TEXT_MUTED, size=11),
+                    margin=dict(l=16, r=16, t=40, b=16),
+                    legend=dict(
+                        orientation="h", x=0.5, y=-0.1, xanchor="center",
+                        font=dict(size=11),
+                    ),
+                )
+                fig_pie.update_traces(textinfo="label+percent", textposition="outside",
+                                      textfont=dict(size=10))
+                st.plotly_chart(fig_pie, width="stretch")
+        except Exception as exc:
+            st.error(f"Erro nos gráficos: {exc}")
+
+        ui.section("Cobertura documental por defeito")
+        try:
+            df_cov = df_an.copy()
             df_cov["Defeito PT"] = df_cov["defeito"].apply(label_pt)
             df_cov_grp = (
                 df_cov.groupby(["Defeito PT", "defeito", "documented"])
@@ -984,10 +999,8 @@ with tab_analise:
                 .sort_values("Ocorrências", ascending=False),
                 width="stretch", hide_index=True,
             )
-        else:
-            st.info("Sem dados para análise de cobertura.")
-    except Exception as exc:
-        st.error(f"Erro na tabela de cobertura: {exc}")
+        except Exception as exc:
+            st.error(f"Erro na tabela de cobertura: {exc}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

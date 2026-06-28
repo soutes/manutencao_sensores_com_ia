@@ -22,7 +22,7 @@ flowchart TB
     %% ── Pipeline de IA ───────────────────────────────────────────
     subgraph PIPELINE["🧠 Pipeline de IA"]
         direction LR
-        SIM["🔍 Similaridade\nKNN ponderado\n(sklearn, k=5)\nacc=0.74"]
+        SIM["🔍 Similaridade\nKNN ponderado\n(sklearn, k=50)\nacc=0.74"]
         SEM["🚦 Semáforo\nClassificador\n🔴🟡🟢"]
         RAG["📚 RAG Retriever\nTF-IDF + cosseno\n61 chunks / 6 docs"]
         GATE{"⛔ Gating\ntem manual?"}
@@ -31,7 +31,7 @@ flowchart TB
 
     %% ── LLM ──────────────────────────────────────────────────────
     subgraph LLM_LAYER["🤖 LLM (interruptor LGPD)"]
-        OLL["🏠 Ollama local\nqwen2.5:7b\non-prem / LGPD\nnada sai da empresa"]
+        OLL["🏠 Ollama local\nqwen2.5:3b\non-prem / LGPD\nnada sai da empresa"]
         OR["☁️ OpenRouter\ncloud API\nSÓ demo / dados sintéticos"]
     end
 
@@ -56,7 +56,6 @@ flowchart TB
     %% ── Deploy ───────────────────────────────────────────────────
     subgraph DEPLOY["🐳 Deploy"]
         DOC["Docker Compose\n(Poetry 2.2.1)\napi + app + bot + ollama"]
-        HF["🤗 HF Spaces\n(demo cloud)"]
     end
 
     %% ── Fluxo principal ──────────────────────────────────────────
@@ -98,7 +97,6 @@ flowchart TB
     DOC -.->|"contém"| API
     DOC -.->|"contém"| INTERFACES
     DOC -.->|"contém"| LLM_LAYER
-    HF -.->|"streamlit\n+ openrouter"| ST
 
     %% ── Estilos ──────────────────────────────────────────────────
     classDef vermelho fill:#fee2e2,stroke:#dc2626,color:#7f1d1d

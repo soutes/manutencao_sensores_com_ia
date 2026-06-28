@@ -37,7 +37,7 @@ O gateway (`src/core/llm.py`) encapsula a lógica; o restante do sistema chama a
 | Alternativa | Por que rejeitada |
 |---|---|
 | Sempre usar API externa | Viola LGPD em produção; dados saem da empresa |
-| Sempre usar LLM local | Demo lenta em CPU (57s); impraticável para HF Spaces |
+| Sempre usar LLM local | Demo lenta em CPU (57s); inviável para demonstração rápida |
 | Dois sistemas separados | Duplica manutenção; riscos de divergência de comportamento |
 | Feature flag no código | Variável de ambiente é mais operacional e não requer redeploy |
 

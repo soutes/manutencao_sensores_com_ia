@@ -10,3 +10,34 @@ data/.key
 .ipynb_checkpoints/
 # CSV grande: versionar com cuidado (32MB). Descomente p/ ignorar:
 # docs/banner.csv
+
+# Apresentação — NUNCA commitar
+apres_claude.md
+
+# Outputs de screenshot e scripts locais — NUNCA commitar
+output*.png
+run.ps1
+start.bat
+
+# Prompts de orquestração / planejamento — apenas local
+/prompt_agents.md
+/prompt_execucao.md
+/prompt_planejamento.md
+
+# Instruções e contexto — apenas local
+/CLAUDE.md
+/CONTEXTO.md
+
+# Orquestração multi-agente / scratch de dev — não compartilhar com a banca
+.prompts/
+scripts/tmux_team.sh
+scripts/_smoke_backend.py
+docs/EXECUCAO_PLANO.md
+docs/STATUS.md
+docs/review_notes.md
+tests/relatorio_qa.md
+notebooks/prompt_canva_apresentacao.md
+
+# Config de ferramentas de IA / working copies
+.claude/
+rag/

@@ -10,8 +10,8 @@
 
 O sistema precisa persistir três entidades: eventos analisados, consultas Q&A e
 pendências de documentação. Em produção on-prem, o banco deve funcionar sem servidor
-adicional. Na demo cloud (HF Spaces), precisa de persistência entre sessões (HF Spaces
-reinicia contêiner — SQLite seria perdido).
+adicional. Em um eventual cenário cloud, pode-se precisar de persistência gerenciada
+(Postgres/Supabase) sem reescrever o código de acesso a dados.
 
 ---
 

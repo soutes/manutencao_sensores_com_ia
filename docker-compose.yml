@@ -8,13 +8,13 @@ services:
 
   api:
     build: .
-    command: poetry run uvicorn api.main:app --host 0.0.0.0 --port 8000 --app-dir src
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --app-dir src
     ports: ["8000:8000"]
     env_file: .env
     environment:
       - LLM_PROVIDER=ollama
       - OLLAMA_HOST=http://ollama:11434
-      - LLM_MODEL=qwen2.5:7b
+      - OLLAMA_MODEL=qwen2.5:3b
     volumes:
       - ./artifacts:/app/artifacts
       - ./data:/app/data
@@ -22,7 +22,7 @@ services:
 
   app:
     build: .
-    command: poetry run streamlit run src/app/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
+    command: streamlit run src/app/streamlit_app.py --server.address 0.0.0.0 --server.port 8501
     ports: ["8501:8501"]
     env_file: .env
     environment:
@@ -34,7 +34,7 @@ services:
 
   bot:
     build: .
-    command: poetry run python src/bot/telegram_bot.py
+    command: python src/bot/telegram_bot.py
     env_file: .env
     environment:
       - OLLAMA_HOST=http://ollama:11434

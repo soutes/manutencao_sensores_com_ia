@@ -265,7 +265,7 @@ async def _handle(update, context):
     # ── Arquivo JSON anexado ─────────────────────────────────────────────────
     if update.message.document:
         try:
-            file = await context.bot.get_file(update.message.document)
+            file = await update.message.document.get_file()
             file_bytes = await file.download_as_bytearray()
             text = file_bytes.decode("utf-8").strip()
         except Exception as e:
@@ -323,7 +323,9 @@ def main() -> None:
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", _start))
     app.add_handler(CommandHandler("myid", _myid))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, _handle))
+    app.add_handler(
+        MessageHandler((filters.TEXT | filters.Document.ALL) & ~filters.COMMAND, _handle)
+    )
     print("Bot Telegram rodando...")
     app.run_polling()
 

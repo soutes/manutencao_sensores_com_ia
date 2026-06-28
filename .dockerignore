@@ -1,0 +1,29 @@
+# ── Contexto de build enxuto (sem isto, manda ~3GB pro daemon) ──
+
+# ambientes / VCS / cache
+.git/
+.venv/
+venv/
+.pytest_cache/
+**/__pycache__/
+*.pyc
+
+# montados como VOLUME em runtime (não vão na imagem)
+artifacts/
+data/
+
+# não usados em runtime (RAG já vem pronto em artifacts/)
+docs/
+notebooks/
+rag/
+
+# segredos e config local
+.env
+.claude/
+.prompts/
+
+# apresentação e scripts locais
+apres_claude.md
+output*.png
+run.ps1
+start.bat
