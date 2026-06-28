@@ -283,9 +283,9 @@ def resumo_geral() -> dict:
     with SessionLocal() as s:
         total = s.query(func.count(Evento.id)).scalar() or 0
         pend = s.query(func.count(Evento.id)).filter(Evento.status == "pendente").scalar() or 0
-        consultas = s.query(func.count(Consulta.id)).scalar() or 0
+        res = s.query(func.count(Evento.id)).filter(Evento.status == "resolvido").scalar() or 0
         return {"eventos": int(total), "pendencias": int(pend),
-                "consultas": int(consultas), "backend": backend_name()}
+                "resolvidos": int(res), "backend": backend_name()}
 
 
 def top_defeitos(limit: int = 5) -> list[dict]:

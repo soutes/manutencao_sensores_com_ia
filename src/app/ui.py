@@ -4,6 +4,7 @@ Componentes puros: recebem dados, renderizam via st.markdown/st.columns.
 Paleta e CSS portados do Gestor_Financeiro (neon escuro).
 """
 from __future__ import annotations
+import urllib.parse as _urlparse
 import streamlit as st
 
 # ── Paleta ──────────────────────────────────────────────────────────────────
@@ -18,6 +19,20 @@ TEXT_DIM    = "#6E7A8C"
 BG          = "#0B0E13"
 CARD_BG     = "#10141C"
 BORDER      = "#1F2530"
+
+# ── Tab icons (SVG mask-image, branco via background-color) ─────────────────
+def _ticon(d: str) -> str:
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14"><path d="{d}" fill="#E8ECF2"/></svg>'
+    return f'url("data:image/svg+xml,{_urlparse.quote(svg, safe="/:@!$&()*+,;=")}")'
+
+# ordem: 1-Overview 2-Nova Análise 3-Pendências 4-Resolvidos 5-Análise 6-Chat 7-Relatório IA
+_TICON_HOME   = _ticon("M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z")
+_TICON_ZAP    = _ticon("M7 2v11h3v9l7-12h-4l4-8z")
+_TICON_WARN   = _ticon("M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z")
+_TICON_CHECK  = _ticon("M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z")
+_TICON_SEARCH = _ticon("M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z")
+_TICON_CHAT   = _ticon("M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z")
+_TICON_DOC    = _ticon("M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z")
 
 # ── Mapa semaforo → cor ─────────────────────────────────────────────────────
 _SEM_COLOR = {"🔴": DANGER, "🟡": WARN, "🟢": ACCENT}
@@ -232,14 +247,56 @@ CSS = f"""
         gap: 4px; border-bottom: 1px solid {BORDER};
     }}
     .stTabs [data-baseweb="tab"] {{
-        padding: 10px 18px; border-radius: 8px 8px 0 0;
+        padding: 10px 16px; border-radius: 8px 8px 0 0;
         background: transparent; color: {TEXT_MUTED};
+        display: flex !important; align-items: center !important;
     }}
     .stTabs [aria-selected="true"] {{
         background: {CARD_BG} !important; color: {TEXT} !important;
         border-top: 1px solid {BORDER};
         border-left: 1px solid {BORDER};
         border-right: 1px solid {BORDER};
+    }}
+    /* ── Tab inline icons (content url, SVG branco) ── */
+    .stTabs [data-baseweb="tab-list"] button::before {{
+        display: inline-block;
+        margin-right: 6px;
+        vertical-align: middle;
+        flex-shrink: 0;
+        opacity: 0.45;
+    }}
+    .stTabs [aria-selected="true"]::before {{
+        opacity: 1 !important;
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(1)::before {{
+        content: {_TICON_HOME};
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(2)::before {{
+        content: {_TICON_ZAP};
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(3)::before {{
+        content: {_TICON_WARN};
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(4)::before {{
+        content: {_TICON_CHECK};
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(5)::before {{
+        content: {_TICON_SEARCH};
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(6)::before {{
+        content: {_TICON_CHAT};
+    }}
+    .stTabs [data-baseweb="tab-list"] button:nth-child(7)::before {{
+        content: {_TICON_DOC};
+    }}
+    /* ── Nova Análise CTA — alinha com barra de tabs ── */
+    .element-container:has(.pre-tab-cta) {{
+        display: none !important;
+    }}
+    .element-container:has(.pre-tab-cta) + .element-container {{
+        margin-bottom: -52px !important;
+        position: relative !important;
+        z-index: 200 !important;
     }}
 
     /* ===== Botão primary ===== */
@@ -251,6 +308,20 @@ CSS = f"""
     .stButton > button[kind="primary"]:hover {{
         background: linear-gradient(180deg, #1FFFB0 0%, {ACCENT} 100%);
         box-shadow: 0 0 28px rgba(16,245,163,0.38);
+    }}
+
+    /* ===== Overview — pulse dot ===== */
+    @keyframes ov-pulse {{
+        0%, 100% {{ opacity: 1; box-shadow: 0 0 6px {ACCENT}; }}
+        50%       {{ opacity: 0.5; box-shadow: 0 0 18px {ACCENT}; }}
+    }}
+    .mp-ov-pulse {{
+        display: inline-block;
+        width: 7px; height: 7px; border-radius: 50%;
+        background: {ACCENT};
+        box-shadow: 0 0 8px {ACCENT};
+        animation: ov-pulse 2s ease-in-out infinite;
+        flex-shrink: 0;
     }}
 </style>
 """
@@ -477,57 +548,77 @@ def form_edicao_status(
 
 # ── Sidebar brand ─────────────────────────────────────────────────────────────
 
-def sidebar_brand() -> None:
-    with st.sidebar:
-        st.markdown(
-            f'<div class="mp-sb-brand">⚙ Manutenção Prescritiva</div>'
-            f'<div class="mp-sb-tag">SENAI SC — Diagnóstico por similaridade + RAG</div>',
-            unsafe_allow_html=True,
-        )
+def render_header(resumo: dict, sem: dict) -> None:
+    """Header com logo + título + ONLINE + KPIs acima das abas."""
+    import base64
+    from pathlib import Path
 
+    # Logo base64
+    logo_path = Path(__file__).resolve().parent.parent.parent / "assets" / "logo_fiesc.png"
+    logo_b64 = ""
+    if logo_path.exists():
+        logo_b64 = base64.b64encode(logo_path.read_bytes()).decode()
+        logo_html = f'<img src="data:image/png;base64,{logo_b64}" style="height:36px;vertical-align:middle;margin-right:10px;" />'
+    else:
+        logo_html = ""
 
-def sidebar_status(resumo: dict, llm_label: str = "", db_label: str = "") -> None:
-    """Bloco de status na sidebar.
+    total = sem.get("total", 0)
+    verm  = sem.get("vermelho", 0)
+    amar  = sem.get("amarelo", 0)
+    verd  = sem.get("verde", 0)
+    pend  = resumo.get("pendencias", 0)
+    res   = resumo.get("resolvidos", 0)
+    ev    = resumo.get("eventos", 0)
 
-    resumo = resumo_geral() do db.py:
-      {"eventos": int, "pendencias": int, "consultas": int, "backend": str}
-    """
-    with st.sidebar:
-        if llm_label:
-            st.markdown(
-                f'<div class="mp-sb-section">Modelo ativo'
-                f'<span style="float:right;">'
-                f'<span class="mp-sb-badge">ATIVO</span></span></div>'
-                f'<div style="color:{TEXT};font-size:12px;line-height:1.5;'
-                f'padding:6px 0 10px 0;border-bottom:1px solid {BORDER};">'
-                f'{llm_label}</div>',
-                unsafe_allow_html=True,
-            )
-        _db = resumo.get("backend", db_label or "SQLite")
-        st.markdown(
-            f'<div class="mp-sb-section">Parque de máquinas</div>'
-            f'<div class="mp-sb-row">'
-            f'<span class="mp-sb-label">Eventos analisados</span>'
-            f'<span class="mp-sb-val">{resumo.get("eventos", 0)}</span></div>'
-            f'<div class="mp-sb-row">'
-            f'<span class="mp-sb-label">Pendências abertas</span>'
-            f'<span class="mp-sb-val" style="color:{DANGER};">'
-            f'{resumo.get("pendencias", 0)}</span></div>'
-            f'<div class="mp-sb-row">'
-            f'<span class="mp-sb-label">Consultas (Q&A)</span>'
-            f'<span class="mp-sb-val">{resumo.get("consultas", 0)}</span></div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f'<div class="mp-sb-section">Sistema</div>'
-            f'<div class="mp-sb-row">'
-            f'<span class="mp-sb-label">Banco</span>'
-            f'<span class="mp-sb-val">{_db}</span></div>'
-            f'<div class="mp-sb-row">'
-            f'<span class="mp-sb-label">Status</span>'
-            f'<span class="mp-sb-badge">ONLINE</span></div>',
-            unsafe_allow_html=True,
-        )
+    from datetime import datetime as _dt
+    _agora = _dt.now().strftime("%d/%m/%Y %H:%M")
+
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:16px;padding:16px 0 12px 0;">'
+        f'{logo_html}'
+        f'<div style="flex:1;">'
+        f'<div style="font-size:22px;font-weight:700;color:{TEXT};display:inline;">'
+        f'Sistema de Manutenção Prescritiva</div>'
+        f'</div>'
+        f'<div style="display:flex;align-items:center;gap:10px;">'
+        f'<div style="width:8px;height:8px;border-radius:50%;background:{ACCENT};'
+        f'box-shadow:0 0 6px {ACCENT};"></div>'
+        f'<span style="font-size:11px;font-weight:600;color:{ACCENT};">ONLINE</span>'
+        f'<span style="font-size:10px;color:{TEXT_DIM};">{_agora}</span>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # KPI strip
+    _kpi = (
+        f'<div style="display:flex;gap:0;margin-bottom:20px;">'
+        f'<div class="mp-glow" style="flex:1;padding:12px 14px;border-radius:10px;'
+        f'background:{CARD_BG};border:1px solid {BORDER};text-align:center;">'
+        f'<div style="font-size:9px;color:{TEXT_DIM};text-transform:uppercase;letter-spacing:0.5px;">Análises</div>'
+        f'<div style="font-size:20px;font-weight:700;color:{TEXT};margin-top:2px;">{ev}</div></div>'
+
+        f'<div class="mp-glow" style="flex:1;padding:12px 14px;border-radius:10px;'
+        f'background:{CARD_BG};border:1px solid {BORDER};text-align:center;">'
+        f'<div style="font-size:9px;color:{TEXT_DIM};text-transform:uppercase;letter-spacing:0.5px;">🔴 Críticos</div>'
+        f'<div style="font-size:20px;font-weight:700;color:{DANGER};margin-top:2px;">{verm}</div></div>'
+
+        f'<div class="mp-glow" style="flex:1;padding:12px 14px;border-radius:10px;'
+        f'background:{CARD_BG};border:1px solid {BORDER};text-align:center;">'
+        f'<div style="font-size:9px;color:{TEXT_DIM};text-transform:uppercase;letter-spacing:0.5px;">🟡 Atenção</div>'
+        f'<div style="font-size:20px;font-weight:700;color:{WARN};margin-top:2px;">{amar}</div></div>'
+
+        f'<div class="mp-glow" style="flex:1;padding:12px 14px;border-radius:10px;'
+        f'background:{CARD_BG};border:1px solid {BORDER};text-align:center;">'
+        f'<div style="font-size:9px;color:{TEXT_DIM};text-transform:uppercase;letter-spacing:0.5px;">Pendências</div>'
+        f'<div style="font-size:20px;font-weight:700;color:{DANGER};margin-top:2px;">{pend}</div></div>'
+
+        f'<div class="mp-glow" style="flex:1;padding:12px 14px;border-radius:10px;'
+        f'background:{CARD_BG};border:1px solid {BORDER};text-align:center;">'
+        f'<div style="font-size:9px;color:{TEXT_DIM};text-transform:uppercase;letter-spacing:0.5px;">Resolvidos</div>'
+        f'<div style="font-size:20px;font-weight:700;color:{ACCENT};margin-top:2px;">{res}</div></div>'
+        f'</div>'
+    )
+    st.markdown(_kpi, unsafe_allow_html=True)
 
 
 # ── Helpers internos ─────────────────────────────────────────────────────────

@@ -24,9 +24,8 @@ from core.faults import FAULT_DOC_MAP, FAULT_LABELS_PT, label_pt
 st.set_page_config(
     page_title="Manutenção Prescritiva — SENAI SC",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
-ui.inject_css()
 
 # ── Dataset de treino (cached) ────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
@@ -119,22 +118,30 @@ _SVG_GEAR = (
 _SVG_GEAR_ENC = urllib.parse.quote(_SVG_GEAR, safe="")
 
 
-@st.dialog("Configuração — IA", width="medium")
 def _dlg_cfg_ia() -> None:
+    st.markdown(
+        f'<div style="padding:18px 0 12px 0;">'
+        f'<div style="font-size:20px;font-weight:700;color:{ui.TEXT};">'
+        f'Configuração IA</div>'
+        f'<div style="font-size:12px;color:{ui.TEXT_MUTED};margin-top:4px;">'
+        f'Configurar o modelo de linguagem (LLM) para prescrições</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
     _prov_atual = _current_llm_provider()
     selected_provider = st.selectbox(
         "Provedor", ["ollama", "openrouter"],
         index=0 if _prov_atual == "ollama" else 1,
-        key="dlg_provider",
+        key="cfg_provider",
         help="ollama = local on-prem (LGPD) | openrouter = API externa (só DEMO)",
     )
     if selected_provider == "ollama":
         dlg_host = st.text_input("Host Ollama",
                                  value=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-                                 key="dlg_host")
+                                 key="cfg_host")
         dlg_model = st.text_input("Modelo",
                                   value=os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
-                                  key="dlg_model")
+                                  key="cfg_model")
         dlg_api_key = ""
         st.markdown(
             '<div style="padding:10px 14px;border-radius:8px;border:1px solid #1A2030;'
@@ -148,8 +155,8 @@ def _dlg_cfg_ia() -> None:
         dlg_model   = os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
         dlg_api_key = st.text_input("API Key OpenRouter", type="password",
                                     value=os.getenv("OPENROUTER_API_KEY", ""),
-                                    key="dlg_api_key")
-        st.text_input("Modelo", value=dlg_model, key="dlg_or_model", disabled=True)
+                                    key="cfg_api_key")
+        st.text_input("Modelo", value=dlg_model, key="cfg_or_model", disabled=True)
         st.markdown(
             '<div style="padding:10px 14px;border-radius:8px;'
             'border:1px solid rgba(255,107,122,0.3);'
@@ -158,101 +165,34 @@ def _dlg_cfg_ia() -> None:
             'API externa — use apenas com dados sintéticos (DEMO).</div>',
             unsafe_allow_html=True,
         )
-    st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
-    col_save, col_cancel = st.columns([3, 1])
-    with col_save:
-        if st.button("Aplicar", type="primary", width="stretch", key="dlg_save"):
-            _apply_llm_config(selected_provider, dlg_host, dlg_model, dlg_api_key)
-            st.success(f"LLM alterado para {selected_provider}")
-    with col_cancel:
-        if st.button("Fechar", width="stretch", key="dlg_cancel"):
-            st.rerun()
+    if st.button("Aplicar configuração", type="primary", key="cfg_save"):
+        _apply_llm_config(selected_provider, dlg_host, dlg_model, dlg_api_key)
+        st.success(f"LLM alterado para {selected_provider}")
 
 
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Sidebar
+# Header: logo + título + KPIs
 # ═══════════════════════════════════════════════════════════════════════════════
-ui.sidebar_brand()
+ui.inject_css()
 
 try:
-    _resumo_g = db.resumo_geral()
+    _hdr_sem = db.resumo_semaforo()
+    _hdr_resumo = db.resumo_geral()
 except Exception:
-    _resumo_g = {"eventos": 0, "pendencias": 0, "consultas": 0, "backend": "?"}
-ui.sidebar_status(_resumo_g)
+    _hdr_sem = {"total": 0, "vermelho": 0, "amarelo": 0, "verde": 0}
+    _hdr_resumo = {"eventos": 0, "pendencias": 0, "resolvidos": 0}
 
-with st.sidebar.expander("Legenda de defeitos", expanded=False):
-    for canon, pt_name in FAULT_LABELS_PT.items():
-        if canon in ("normal", "baseline", "teste", "acelerando",
-                     "motor_desligado", "desconhecido"):
-            continue
-        st.markdown(
-            f'<div style="font-size:11px;color:{ui.TEXT_MUTED};line-height:1.8;">'
-            f'<b style="color:{ui.TEXT};">{pt_name}</b>'
-            f'<span style="font-family:monospace;color:{ui.TEXT_DIM};">'
-            f' · {canon}</span></div>',
-            unsafe_allow_html=True,
-        )
-
-# ── Configuração IA — rodapé da sidebar ──────────────────────────────────────
-st.sidebar.markdown(
-    f"""<style>
-section[data-testid="stSidebar"] .block-container {{
-    display: flex !important;
-    flex-direction: column !important;
-    min-height: calc(100vh - 6rem) !important;
-}}
-.element-container:has(.cfg-ia-mk) {{
-    margin-top: auto !important;
-    padding-top: 10px !important;
-    border-top: 1px solid {ui.BORDER} !important;
-}}
-.element-container:has(.cfg-ia-mk) + .element-container button {{
-    background: transparent !important;
-    border: none !important;
-    color: #C8CDD6 !important;
-    text-align: left !important;
-    font-size: 13px !important;
-    padding: 8px 14px !important;
-    border-radius: 8px !important;
-    width: 100% !important;
-    font-weight: 500 !important;
-    box-shadow: none !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    letter-spacing: 0.1px !important;
-}}
-.element-container:has(.cfg-ia-mk) + .element-container button::before {{
-    content: ""; display: inline-block;
-    width: 15px; height: 15px;
-    margin-right: 10px; vertical-align: -3px; flex-shrink: 0;
-    background-color: #8B92A0;
-    -webkit-mask: url("data:image/svg+xml;utf8,{_SVG_GEAR_ENC}") no-repeat center / contain;
-    mask: url("data:image/svg+xml;utf8,{_SVG_GEAR_ENC}") no-repeat center / contain;
-}}
-.element-container:has(.cfg-ia-mk) + .element-container button:hover {{
-    background: #131B28 !important;
-    color: #E8ECF2 !important;
-}}
-.element-container:has(.cfg-ia-mk) + .element-container button:hover::before {{
-    background-color: #E8ECF2 !important;
-}}
-</style>
-<span class="cfg-ia-mk" style="display:none;"></span>""",
-    unsafe_allow_html=True,
-)
-if st.sidebar.button("Configuração  ›  IA", key="btn_cfg_ia", width="stretch"):
-    _dlg_cfg_ia()
+ui.render_header(_hdr_resumo, _hdr_sem)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Abas
 # ═══════════════════════════════════════════════════════════════════════════════
 (tab_overview, tab_nova, tab_pend, tab_resolvidos,
- tab_analise, tab_chat, tab_relatorio) = st.tabs([
+ tab_analise, tab_chat, tab_relatorio, tab_config) = st.tabs([
     "Overview", "Nova Análise", "Pendências", "Resolvidos",
-    "Análise", "Chat", "Relatório IA",
+    "Análise", "Chat", "Relatório IA", "Configuração IA",
 ])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1280,8 +1220,6 @@ with tab_relatorio:
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.error(f"Erro ao gerar relatório: {_rel.get('erro', '?')}")
-            if _stats.get("total", 0) == 0:
-                st.info("Nenhum evento encontrado no período. Tente um intervalo maior.")
     else:
         st.markdown(
             f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
@@ -1294,3 +1232,9 @@ with tab_relatorio:
             f'</div>',
             unsafe_allow_html=True,
         )
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Aba 7 — Configuração IA
+# ═══════════════════════════════════════════════════════════════════════════════
+with tab_config:
+    _dlg_cfg_ia()
