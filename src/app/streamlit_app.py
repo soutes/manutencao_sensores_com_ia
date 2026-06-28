@@ -173,18 +173,10 @@ def _dlg_cfg_ia() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Header: logo + título + KPIs
+# Header: Logo + Título + ONLINE + data
 # ═══════════════════════════════════════════════════════════════════════════════
 ui.inject_css()
-
-try:
-    _hdr_sem = db.resumo_semaforo()
-    _hdr_resumo = db.resumo_geral()
-except Exception:
-    _hdr_sem = {"total": 0, "vermelho": 0, "amarelo": 0, "verde": 0}
-    _hdr_resumo = {"eventos": 0, "pendencias": 0, "resolvidos": 0}
-
-ui.render_header(_hdr_resumo, _hdr_sem)
+ui.render_header()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Abas
@@ -235,58 +227,8 @@ with tab_overview:
     _ov_cov_pct  = round(_ov_cov_doc / _ov_cov_tot * 100)
     _ds          = _dataset_stats()
 
-    # ── Hero ─────────────────────────────────────────────────────────────────
-    st.markdown(
-        f'<div style="display:flex;align-items:flex-start;'
-        f'justify-content:space-between;padding:20px 0 14px 0;">'
-        f'<div>'
-        f'<div style="font-size:26px;font-weight:800;color:{ui.TEXT};'
-        f'letter-spacing:-0.5px;line-height:1.2;">'
-        f'Sistema de Manutenção Prescritiva</div>'
-        f'</div>'
-        f'<div style="display:flex;flex-direction:column;align-items:flex-end;'
-        f'gap:6px;flex-shrink:0;margin-left:20px;">'
-        f'<div style="display:inline-flex;align-items:center;gap:8px;'
-        f'padding:6px 14px;border-radius:999px;'
-        f'background:rgba(16,245,163,0.08);border:1px solid rgba(16,245,163,0.25);">'
-        f'<span class="mp-ov-pulse"></span>'
-        f'<span style="font-size:12px;font-weight:700;color:{ui.ACCENT};'
-        f'letter-spacing:0.5px;">ONLINE</span></div>'
-        f'<div style="font-size:11px;color:{ui.TEXT_DIM};">Atualizado {_ov_now}</div>'
-        f'</div></div>',
-        unsafe_allow_html=True,
-    )
-
-    # ── KPI Strip — eventos no banco ─────────────────────────────────────────
-    _kpi_defs = [
-        ("Total Eventos",  str(_ov_total),  ui.TEXT,     "no banco de dados"),
-        ("Críticos",       str(_ov_verm),   ui.DANGER,  f"{_ov_pct_v}% do total"),
-        ("Atenção",        str(_ov_amar),   ui.WARN,    f"{_ov_pct_a}% do total"),
-        ("Pendências",     str(_ov_pend),   _ov_pend_c, "sem resolução"),
-        ("Consultas Q&A",  str(_ov_consul), ui.INFO,    "chat · Telegram"),
-    ]
-    _kpi_html = ""
-    for _ki, (_kl, _kv, _kc, _ks) in enumerate(_kpi_defs):
-        _kpl = "4px" if _ki == 0 else "24px"
-        _kpr = "4px" if _ki == 4 else "24px"
-        _kbl = f"border-left:1px solid {ui.BORDER};" if _ki > 0 else ""
-        _kpi_html += (
-            f'<div style="flex:1;padding:0 {_kpr} 0 {_kpl};{_kbl}">'
-            f'<div style="font-size:10px;letter-spacing:0.8px;text-transform:uppercase;'
-            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:6px;">{_kl}</div>'
-            f'<div style="font-size:30px;font-weight:800;color:{_kc};'
-            f'line-height:1;font-variant-numeric:tabular-nums;">{_kv}</div>'
-            f'<div style="font-size:11px;color:{ui.TEXT_DIM};margin-top:5px;">{_ks}</div>'
-            f'</div>'
-        )
-    st.markdown(
-        f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
-        f'border-top:1px solid rgba(16,245,163,0.22);border-radius:14px;'
-        f'padding:22px 4px;margin-bottom:16px;display:flex;align-items:stretch;">'
-        + _kpi_html + '</div>',
-        unsafe_allow_html=True,
-    )
-
+    # ── KPIs (só no Overview) ────────────────────────────────────────────────
+    ui.render_kpis(_ov_geral, _ov_sem)
 
     # ── Atividade + Top Defeitos ──────────────────────────────────────────────
     _col_act, _col_top_def = st.columns([3, 2])
@@ -309,19 +251,19 @@ with tab_overview:
                     labels={"value": "", "dia": "", "variable": ""},
                 )
                 _fig7.update_layout(
-                    height=230,
+                    height=260,
                     paper_bgcolor=ui.CARD_BG,
                     plot_bgcolor=ui.CARD_BG,
-                    font=dict(color=ui.TEXT_MUTED, size=10),
-                    margin=dict(l=4, r=4, t=20, b=36),
+                    font=dict(color=ui.TEXT_MUTED, size=11),
+                    margin=dict(l=40, r=16, t=20, b=50),
                     legend=dict(
                         bgcolor="rgba(0,0,0,0)", orientation="h",
-                        x=0.5, y=-0.14, xanchor="center", yanchor="top",
-                        font=dict(size=10),
+                        x=0.5, y=-0.18, xanchor="center", yanchor="top",
+                        font=dict(size=11),
                     ),
-                    xaxis=dict(showgrid=False, tickfont=dict(size=9, color=ui.TEXT_DIM)),
+                    xaxis=dict(showgrid=False, tickfont=dict(size=10, color=ui.TEXT_DIM)),
                     yaxis=dict(gridcolor=ui.BORDER, showgrid=True,
-                               tickfont=dict(size=9, color=ui.TEXT_DIM), zeroline=False),
+                               tickfont=dict(size=10, color=ui.TEXT_DIM), zeroline=False),
                     bargap=0.3, bargroupgap=0.08,
                 )
                 _fig7.update_traces(marker_line_width=0)
@@ -887,13 +829,6 @@ with tab_pend:
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_resolvidos:
     # ── Slicer ───────────────────────────────────────────────────────────────
-    st.markdown(
-        f'<div style="display:flex;align-items:center;gap:10px;padding:16px 0 8px 0;">'
-        f'<div style="font-size:18px;font-weight:700;color:{ui.TEXT};flex:1;">'
-        f'Linha do Tempo</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
     _res_ini, _res_fim = _period_slicer("res")
 
     # ── Timeline chart ────────────────────────────────────────────────────────
@@ -907,30 +842,7 @@ with tab_resolvidos:
             serie_res = [r for r in serie_res if _res_ini <= r["dia"] <= _res_fim]
 
         if serie_res:
-            df_res = pd.DataFrame(serie_res)
-            fig_res = px.line(
-                df_res, x="dia", y=["resolvidos", "abertos"],
-                color_discrete_map={"resolvidos": ui.ACCENT, "abertos": ui.DANGER},
-                labels={"value": "Eventos", "dia": "Data", "variable": "Status"},
-            )
-            fig_res.update_layout(
-                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.BG,
-                font=dict(color=ui.TEXT_MUTED, size=11),
-                height=420,
-                margin=dict(l=8, r=8, t=20, b=40),
-                legend=dict(
-                    bgcolor=ui.CARD_BG, bordercolor=ui.BORDER, borderwidth=1,
-                    orientation="h", x=0.5, y=-0.08,
-                    xanchor="center", yanchor="top", font=dict(size=11),
-                ),
-                xaxis=dict(showgrid=False, tickfont=dict(size=10)),
-                yaxis=dict(gridcolor=ui.BORDER, showgrid=True,
-                           title="Eventos", tickfont=dict(size=10)),
-            )
-            fig_res.update_traces(line=dict(width=2))
-            st.plotly_chart(fig_res, width="stretch")
-
-            # ── KPIs do período ───────────────────────────────────────────────
+            # ── KPIs do período (primeiro) ─────────────────────────────────────
             _tot_ab = sum(r["abertos"] for r in serie_res)
             _tot_res = sum(r["resolvidos"] for r in serie_res)
             _res_pct = round(_tot_res / (_tot_ab + _tot_res) * 100) if (_tot_ab + _tot_res) else 0
@@ -953,10 +865,40 @@ with tab_resolvidos:
                 )
             st.markdown(
                 f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
-                f'border-radius:12px;padding:16px 4px;margin-top:16px;'
+                f'border-radius:12px;padding:16px 4px;margin-bottom:16px;'
                 f'display:flex;align-items:center;">' + _kst_html + '</div>',
                 unsafe_allow_html=True,
             )
+
+            # ── Linha do Tempo (depois dos KPIs) ──────────────────────────────
+            st.markdown(
+                f'<div style="font-size:10px;letter-spacing:0.7px;text-transform:uppercase;'
+                f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:8px;">'
+                f'Linha do Tempo</div>',
+                unsafe_allow_html=True,
+            )
+            df_res = pd.DataFrame(serie_res)
+            fig_res = px.line(
+                df_res, x="dia", y=["resolvidos", "abertos"],
+                color_discrete_map={"resolvidos": ui.ACCENT, "abertos": ui.DANGER},
+                labels={"value": "", "dia": "", "variable": ""},
+            )
+            fig_res.update_layout(
+                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.BG,
+                font=dict(color=ui.TEXT_MUTED, size=11),
+                height=420,
+                margin=dict(l=40, r=16, t=20, b=50),
+                legend=dict(
+                    bgcolor=ui.CARD_BG, bordercolor=ui.BORDER, borderwidth=1,
+                    orientation="h", x=0.5, y=-0.12,
+                    xanchor="center", yanchor="top", font=dict(size=11),
+                    title=None,
+                ),
+                xaxis=dict(showgrid=False, tickfont=dict(size=10), title=None),
+                yaxis=dict(gridcolor=ui.BORDER, showgrid=True, title=None, tickfont=dict(size=10)),
+            )
+            fig_res.update_traces(line=dict(width=2))
+            st.plotly_chart(fig_res, width="stretch")
         else:
             st.info(f"Sem dados de série temporal para o período {_res_ini} → {_res_fim}.")
     except Exception as exc:
@@ -989,8 +931,13 @@ with tab_analise:
                 title="Eventos por nível de criticidade",
             )
             fig_bar.update_layout(
-                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.BG,
-                font=dict(color=ui.TEXT), showlegend=False,
+                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.CARD_BG,
+                font=dict(color=ui.TEXT_MUTED, size=11),
+                margin=dict(l=40, r=16, t=40, b=50),
+                showlegend=False,
+                xaxis=dict(title=None, tickfont=dict(size=11)),
+                yaxis=dict(title=None, gridcolor=ui.BORDER, tickfont=dict(size=10)),
+                bargap=0.3,
             )
             st.plotly_chart(fig_bar, width="stretch")
 
@@ -1001,32 +948,18 @@ with tab_analise:
                 title="Proporção por criticidade",
             )
             fig_pie.update_layout(
-                paper_bgcolor=ui.CARD_BG, font=dict(color=ui.TEXT)
+                paper_bgcolor=ui.CARD_BG, plot_bgcolor=ui.CARD_BG,
+                font=dict(color=ui.TEXT_MUTED, size=11),
+                margin=dict(l=16, r=16, t=40, b=16),
+                legend=dict(
+                    orientation="h", x=0.5, y=-0.1, xanchor="center",
+                    font=dict(size=11),
+                ),
             )
+            fig_pie.update_traces(textinfo="label+percent", textposition="outside",
+                                  textfont=dict(size=10))
             st.plotly_chart(fig_pie, width="stretch")
 
-        # ── Eventos abertos por criticidade ───────────────────────────────────
-        ui.section("Eventos críticos / atenção abertos")
-        abertos_an = resumo_an.get("abertos", [])
-        if abertos_an:
-            for ev in abertos_an:
-                crit_color = ui.DANGER if ev["semaforo"] == "🔴" else ui.WARN
-                _crit_label = "CRÍTICO" if ev["semaforo"] == "🔴" else "ATENÇÃO"
-                _def_fmt = _fmt_defeito(ev["defeito"])
-                st.markdown(
-                    f'<div class="mp-card" style="border-left:3px solid {crit_color};">'
-                    f'<b style="color:{ui.TEXT};">#{ev["id"]} — {_def_fmt}</b>'
-                    f'&nbsp;<span class="mp-badge" style="background:rgba(255,107,122,0.12);'
-                    f'color:{crit_color};border:1px solid {crit_color}55;">'
-                    f'{_crit_label}</span>&nbsp;'
-                    f'<span style="color:{ui.TEXT_MUTED};font-size:12px;">'
-                    f'{ev["frequency_per_week"]:.1f}/sem'
-                    f' · {"COM" if ev["documented"] else "SEM"} manual'
-                    f'</span></div>',
-                    unsafe_allow_html=True,
-                )
-        else:
-            st.success("Nenhum evento crítico aberto.")
 
     except Exception as exc:
         st.error(f"Erro nos gráficos: {exc}")

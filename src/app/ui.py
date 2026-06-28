@@ -548,10 +548,11 @@ def form_edicao_status(
 
 # ── Sidebar brand ─────────────────────────────────────────────────────────────
 
-def render_header(resumo: dict, sem: dict) -> None:
-    """Header com logo + título + ONLINE + KPIs acima das abas."""
+def render_header() -> None:
+    """Header: Logo + Título + ONLINE + data. Chamado antes das abas."""
     import base64
     from pathlib import Path
+    from datetime import datetime as _dt
 
     # Logo base64
     logo_path = Path(__file__).resolve().parent.parent.parent / "assets" / "logo_fiesc.png"
@@ -562,15 +563,6 @@ def render_header(resumo: dict, sem: dict) -> None:
     else:
         logo_html = ""
 
-    total = sem.get("total", 0)
-    verm  = sem.get("vermelho", 0)
-    amar  = sem.get("amarelo", 0)
-    verd  = sem.get("verde", 0)
-    pend  = resumo.get("pendencias", 0)
-    res   = resumo.get("resolvidos", 0)
-    ev    = resumo.get("eventos", 0)
-
-    from datetime import datetime as _dt
     _agora = _dt.now().strftime("%d/%m/%Y %H:%M")
 
     st.markdown(
@@ -589,7 +581,16 @@ def render_header(resumo: dict, sem: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    # KPI strip
+
+def render_kpis(resumo: dict, sem: dict) -> None:
+    """KPI strip abaixo das abas: Análises, Críticos, Atenção, Pendências, Resolvidos."""
+    total = sem.get("total", 0)
+    verm  = sem.get("vermelho", 0)
+    amar  = sem.get("amarelo", 0)
+    pend  = resumo.get("pendencias", 0)
+    res   = resumo.get("resolvidos", 0)
+    ev    = resumo.get("eventos", 0)
+
     _kpi = (
         f'<div style="display:flex;gap:0;margin-bottom:20px;">'
         f'<div class="mp-glow" style="flex:1;padding:12px 14px;border-radius:10px;'
