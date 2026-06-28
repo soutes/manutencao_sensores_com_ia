@@ -127,13 +127,32 @@ def salvar_consulta(pergunta: str, resposta: str, defeito: str | None = None,
 def listar_pendencias(limit: int = 20) -> list[dict]:
     init_db()
     with SessionLocal() as s:
-        rows = (s.query(Evento).filter(Evento.status == "pendente")
-                .order_by(Evento.frequency_per_week.desc(), Evento.ts.desc())
+        rows = (s.query(Evento)
+                .filter(Evento.status.in_(["pendente", "resolvido"]))
+                .order_by(Evento.ts.desc())
                 .limit(limit).all())
         return [{"id": r.id, "event_id": r.event_id, "defeito": r.defeito,
                  "documented": r.documented, "n_similar": r.n_similar,
                  "semaforo": r.semaforo, "frequency_per_week": r.frequency_per_week,
+                 "status": r.status,
                  "ts": r.ts.isoformat() if r.ts else None} for r in rows]
+
+
+def buscar_evento(evento_id: int) -> dict | None:
+    """Busca um evento por PK e retorna dict com report_json parsed."""
+    init_db()
+    with SessionLocal() as s:
+        r = s.query(Evento).get(evento_id)
+        if r is None:
+            return None
+        import json as _json
+        report = _json.loads(r.report_json) if r.report_json else {}
+        return {"id": r.id, "event_id": r.event_id, "defeito": r.defeito,
+                "is_problem": r.is_problem, "documented": r.documented,
+                "n_similar": r.n_similar, "frequency_per_week": r.frequency_per_week,
+                "semaforo": r.semaforo, "status": r.status, "origem": r.origem,
+                "payload_json": r.payload_json, "report": report,
+                "ts": r.ts.isoformat() if r.ts else None}
 
 
 def listar_eventos(limit: int = 100, status_filter: str | None = None,
@@ -267,3 +286,50 @@ def resumo_geral() -> dict:
         consultas = s.query(func.count(Consulta.id)).scalar() or 0
         return {"eventos": int(total), "pendencias": int(pend),
                 "consultas": int(consultas), "backend": backend_name()}
+
+
+def top_defeitos(limit: int = 5) -> list[dict]:
+    """Ranking de defeitos mais frequentes (is_problem=True). Usado no Overview."""
+    init_db()
+    with SessionLocal() as s:
+        rows = (
+            s.query(Evento.defeito, Evento.documented,
+                    func.count(Evento.id).label("cnt"))
+            .filter(Evento.is_problem == True)
+            .group_by(Evento.defeito, Evento.documented)
+            .order_by(func.count(Evento.id).desc())
+            .limit(limit)
+            .all()
+        )
+        return [{"defeito": r[0], "documented": bool(r[1]), "count": int(r[2])}
+                for r in rows]
+
+
+def listar_recentes(limit: int = 4) -> list[dict]:
+    """Lista eventos mais recentes por timestamp, sem reordenar por semáforo."""
+    init_db()
+    with SessionLocal() as s:
+        rows = (s.query(Evento).order_by(Evento.ts.desc()).limit(limit).all())
+        return [{"id": r.id, "defeito": r.defeito, "semaforo": r.semaforo,
+                 "status": r.status, "is_problem": r.is_problem,
+                 "documented": r.documented,
+                 "ts": r.ts.isoformat() if r.ts else None}
+                for r in rows]
+
+
+def listar_eventos_periodo(inicio: str, fim: str) -> list[dict]:
+    """Eventos entre inicio e fim inclusive (YYYY-MM-DD). Usado em Relatório IA."""
+    init_db()
+    with SessionLocal() as s:
+        rows = (
+            s.query(Evento)
+            .filter(Evento.ts >= f"{inicio} 00:00:00",
+                    Evento.ts <= f"{fim} 23:59:59")
+            .order_by(Evento.ts.desc())
+            .all()
+        )
+        return [{"id": r.id, "defeito": r.defeito, "is_problem": r.is_problem,
+                 "documented": r.documented, "semaforo": r.semaforo,
+                 "status": r.status, "frequency_per_week": r.frequency_per_week,
+                 "ts": r.ts.isoformat() if r.ts else None}
+                for r in rows]

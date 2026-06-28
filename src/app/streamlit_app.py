@@ -347,31 +347,6 @@ with tab_overview:
         unsafe_allow_html=True,
     )
 
-    # ── Dataset Stats Strip ───────────────────────────────────────────────────
-    _ds_items = [
-        ("Dataset de treino", f"{_ds['registros']:,}".replace(",", "."), "registros banner_clean"),
-        ("Acurácia Random Forest", "87,9%",   "166k × 18 features"),
-        ("Cobertura RAG",          f"{_ov_cov_doc}/{_ov_cov_tot}", f"{_ov_cov_pct}% · 61 chunks · TF-IDF"),
-    ]
-    _ds_html = ""
-    for _di, (_dl, _dv, _ds2) in enumerate(_ds_items):
-        _dbl = f"border-left:1px solid {ui.BORDER};" if _di > 0 else ""
-        _ds_html += (
-            f'<div style="flex:1;padding:0 20px;{_dbl}">'
-            f'<div style="font-size:9px;letter-spacing:0.7px;text-transform:uppercase;'
-            f'color:{ui.TEXT_DIM};font-weight:600;margin-bottom:4px;">{_dl}</div>'
-            f'<div style="font-size:18px;font-weight:700;color:{ui.TEXT_MUTED};'
-            f'font-variant-numeric:tabular-nums;">{_dv}</div>'
-            f'<div style="font-size:10px;color:{ui.TEXT_DIM};margin-top:2px;">{_ds2}</div>'
-            f'</div>'
-        )
-    st.markdown(
-        f'<div style="background:rgba(16,20,28,0.6);border:1px solid {ui.BORDER};'
-        f'border-radius:10px;padding:14px 4px;margin-bottom:24px;'
-        f'display:flex;align-items:stretch;">'
-        + _ds_html + '</div>',
-        unsafe_allow_html=True,
-    )
 
     # ── Atividade + Top Defeitos ──────────────────────────────────────────────
     _col_act, _col_top_def = st.columns([3, 2])
@@ -831,7 +806,7 @@ with tab_nova:
 
 # ═══════════════════════════════════════════════════════════════════════════════
 with tab_pend:
-    ui.section("Pendências abertas")
+    ui.section("Pendências")
     try:
         pendencias = db.listar_pendencias(limit=50)
     except Exception as exc:
@@ -839,31 +814,49 @@ with tab_pend:
         pendencias = []
 
     if not pendencias:
-        st.success("Nenhuma pendência aberta.")
+        st.success("Nenhuma pendência registrada.")
     else:
-        if len(pendencias) > 5:
+        # Conta pendentes vs resolvidos
+        _pendentes = [p for p in pendencias if p.get("status") == "pendente"]
+        _resolvidos = [p for p in pendencias if p.get("status") == "resolvido"]
+
+        if len(_pendentes) > 5:
             st.markdown(
                 f'<div style="background:rgba(255,107,122,0.10);'
                 f'border:1px solid {ui.DANGER};border-radius:10px;'
                 f'padding:14px 18px;margin-bottom:16px;">'
-                f'<b style="color:{ui.DANGER};">⚠ {len(pendencias)} pendências abertas</b>'
+                f'<b style="color:{ui.DANGER};">⚠ {len(_pendentes)} pendências abertas</b>'
                 f' — acima do limite recomendado (5). Atenção imediata necessária.'
                 f'</div>',
                 unsafe_allow_html=True,
             )
+
         for p in pendencias:
+            _pid = p["id"]
+            _is_resolved = p.get("status") == "resolvido"
             freq      = p.get("frequency_per_week", 0.0)
             doc_color = ui.ACCENT if p.get("documented") else ui.DANGER
             doc_flag  = "COM manual" if p.get("documented") else "SEM manual"
             ts_str    = (p.get("ts") or "")[:10]
             _def_fmt  = _fmt_defeito(p["defeito"])
+
+            # ── Card da pendência (vermelho = pendente, verde = resolvido) ──
+            _card_border = ui.ACCENT if _is_resolved else ui.DANGER
+            _card_bg = f'rgba(16,245,163,0.04)' if _is_resolved else 'rgba(255,107,122,0.04)'
+            _badge_bg = 'rgba(16,245,163,0.12)' if _is_resolved else 'rgba(255,107,122,0.12)'
+            _badge_brd = 'rgba(16,245,163,0.35)' if _is_resolved else 'rgba(255,107,122,0.35)'
+            _badge_color = ui.ACCENT if _is_resolved else ui.DANGER
+            _badge_text = "✅ RESOLVIDO" if _is_resolved else "PENDENTE"
+
             st.markdown(
-                f'<div class="mp-card" style="border-left:3px solid {ui.DANGER};">'
+                f'<div class="mp-card" style="border-left:3px solid {_card_border};'
+                f'background:{_card_bg};">'
                 f'<div style="display:flex;align-items:center;gap:10px;">'
-                f'<span style="font-size:20px;">🔴</span>'
-                f'<b style="color:{ui.TEXT};flex:1;">#{p["id"]} — {_def_fmt}</b>'
-                f'<span class="mp-badge" style="background:rgba(255,107,122,0.12);'
-                f'color:{ui.DANGER};border:1px solid rgba(255,107,122,0.35);">PENDENTE</span>'
+                f'<div style="width:14px;height:14px;border-radius:50%;'
+                f'background:{_card_border};flex-shrink:0;"></div>'
+                f'<b style="color:{ui.TEXT};flex:1;">#{_pid} — {_def_fmt}</b>'
+                f'<span class="mp-badge" style="background:{_badge_bg};'
+                f'color:{_badge_color};border:1px solid {_badge_brd};">{_badge_text}</span>'
                 f'</div>'
                 f'<div style="margin-top:8px;font-size:12px;color:{ui.TEXT_MUTED};">'
                 f'Frequência: <b style="color:{ui.TEXT};">{freq:.1f}/sem</b>'
@@ -872,6 +865,81 @@ with tab_pend:
                 f'</div></div>',
                 unsafe_allow_html=True,
             )
+
+            # ── Botões de ação (só para pendentes) ──────────────────────────
+            if not _is_resolved:
+                _col_rec, _col_res, _spacer = st.columns([2, 2, 6])
+
+                with _col_rec:
+                    if st.button("Ver recomendação", key=f"pend_rec_{_pid}",
+                                 width="stretch"):
+                        st.session_state[f"pend_show_rec_{_pid}"] = not st.session_state.get(
+                            f"pend_show_rec_{_pid}", False)
+
+                with _col_res:
+                    if st.button("✅ Resolvido", key=f"pend_res_{_pid}",
+                                 width="stretch"):
+                        st.session_state[f"pend_confirm_{_pid}"] = True
+                        st.rerun()
+
+                # --- Expansão: prescrição ---
+                if st.session_state.get(f"pend_show_rec_{_pid}", False):
+                    _ev = db.buscar_evento(_pid)
+                    if _ev and _ev.get("report"):
+                        _rep = _ev["report"]
+                        _instr = _rep.get("instructions", "")
+                        if _instr:
+                            _instr = _limpar_prescricao(_instr)
+                        _fontes = _rep.get("sources", [])
+                        _border = ui.ACCENT if _ev.get("documented") else ui.INFO
+                        st.markdown(
+                            f'<div style="background:{ui.CARD_BG};border:1px solid {ui.BORDER};'
+                            f'border-left:4px solid {_border};border-radius:12px;padding:16px 20px;'
+                            f'margin:4px 0 8px 0;">'
+                            f'<div style="font-size:11px;letter-spacing:0.8px;text-transform:uppercase;'
+                            f'color:{ui.TEXT_DIM};margin-bottom:8px;">📋 Procedimento de Correção</div>'
+                            f'<div style="color:{ui.TEXT};font-size:14px;line-height:1.8;'
+                            f'white-space:pre-wrap;">{_instr or "Sem prescrição disponível."}</div>'
+                            + (f'<div style="font-size:11px;color:{ui.TEXT_DIM};margin-top:8px;">'
+                               f'Fontes: {", ".join(_fontes)}</div>' if _fontes else '')
+                            + f'</div>',
+                            unsafe_allow_html=True,
+                        )
+                    else:
+                        st.info("Prescrição não encontrada.")
+
+                # --- Fluxo: confirmar resolução ---
+                if st.session_state.get(f"pend_confirm_{_pid}", False):
+                    st.markdown(
+                        f'<div style="font-size:12px;color:{ui.TEXT_DIM};'
+                        f'margin-bottom:4px;">Comentário (opcional):</div>',
+                        unsafe_allow_html=True,
+                    )
+                    _comentario = st.text_input(
+                        "Comentário", key=f"pend_comentario_{_pid}",
+                        label_visibility="collapsed",
+                        placeholder="Ex: rolamento substituído, correia tensionada...",
+                    )
+                    _col_ok, _col_cancel, _ = st.columns([2, 2, 6])
+                    with _col_ok:
+                        if st.button("Confirmar", type="primary",
+                                     key=f"pend_confirmar_{_pid}",
+                                     width="stretch"):
+                            db.atualizar_status(
+                                _pid, "resolvido",
+                                comentario=_comentario or None,
+                                responsavel="operador",
+                            )
+                            st.session_state.pop(f"pend_confirm_{_pid}", None)
+                            st.session_state.pop(f"pend_show_rec_{_pid}", None)
+                            st.rerun()
+                    with _col_cancel:
+                        if st.button("Cancelar", key=f"pend_cancelar_{_pid}",
+                                     width="stretch"):
+                            st.session_state.pop(f"pend_confirm_{_pid}", None)
+                            st.rerun()
+
+            st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
